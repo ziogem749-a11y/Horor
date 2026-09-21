@@ -26,50 +26,75 @@ const seatX = (side, col) => side * (0.56 + 0.48 * col);       // col 0 = sisi l
 /* ---------- renderer, adegan, kamera ---------- */
 const renderer = new THREE.WebGLRenderer({ canvas: el.gl, antialias: false, powerPreference: 'high-performance' });
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-const BR = [1.25, 1.7, 2.3], BRN = ['normal', 'terang', 'sangat terang']; let brI = 1;
-try { brI = clamp(parseInt(localStorage.getItem('pw_br2')), 0, 2); if (isNaN(brI)) brI = 1; } catch (e) { }
+const BR = [1.0, 1.4, 2.0], BRN = ['normal', 'terang', 'sangat terang']; let brI = 1;
+try { brI = clamp(parseInt(localStorage.getItem('pw_br3')), 0, 2); if (isNaN(brI)) brI = 1; } catch (e) { }
 function applyBright() { renderer.toneMappingExposure = BR[brI]; }
-function cycleBright() { brI = (brI + 1) % 3; try { localStorage.setItem('pw_br2', String(brI)); } catch (e) { } applyBright(); }
+function cycleBright() { brI = (brI + 1) % 3; try { localStorage.setItem('pw_br3', String(brI)); } catch (e) { } applyBright(); }
 applyBright();
 const scene = new THREE.Scene();
-const SKY = new THREE.Color(0x05070f), SKYFLASH = new THREE.Color(0xa9bdf0);
-scene.background = SKY.clone();
+scene.background = new THREE.Color(0xc8dbf2);
 const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 1200);
 const QUAL = { pr: Math.min(window.devicePixelRatio || 1, 1.25) };
 function resize() { const w = window.innerWidth, h = window.innerHeight; renderer.setPixelRatio(QUAL.pr); renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
 window.addEventListener('resize', resize); resize();
 
-const ambient = new THREE.AmbientLight(0xffffff, 1.5); scene.add(ambient);
-const hemi = new THREE.HemisphereLight(0xdfe8ff, 0x7a6a55, 1.3); scene.add(hemi);
-const cabinL = [0, 1].map(() => { const l = new THREE.PointLight(0xffe7c2, 6, 9, 1.4); scene.add(l); return l; });
-const flashL = new THREE.PointLight(0xa8c0ff, 0, 400, 1.0); flashL.position.set(60, 40, 10); scene.add(flashL);
+const ambient = new THREE.AmbientLight(0xffffff, 1.1); scene.add(ambient);
+const hemi = new THREE.HemisphereLight(0xdfeaff, 0x8a7d6a, 1.1); scene.add(hemi);
+const sunLight = new THREE.DirectionalLight(0xfff0d8, 1.2); sunLight.position.set(-3, 2, -2.5); scene.add(sunLight);
+const cabinL = [0, 1].map(() => { const l = new THREE.PointLight(0xffe7c2, 3, 8, 1.4); scene.add(l); return l; });
+const flashL = new THREE.PointLight(0xdfe8ff, 0, 400, 1.0); flashL.position.set(60, 40, 10); scene.add(flashL);
 
-/* ---------- langit badai ---------- */
+/* ---------- langit siang: matahari, lautan awan, dan gumpalan mendung ---------- */
 function mkCanvas(w, h, draw) {
   try { const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext && c.getContext('2d'); if (!g) return null; draw(g, w, h); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; } catch (e) { return null; }
 }
+const srgbLin = c => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+function blobs(g, w, h, n, r0, r1, col, a0, a1, wrap) {
+  for (let i = 0; i < n; i++) {
+    const x = Math.random() * w, y = Math.random() * h, r = r0 + Math.random() * (r1 - r0), a = a0 + Math.random() * (a1 - a0);
+    for (const ox of (wrap ? [-w, 0, w] : [0])) for (const oy of (wrap ? [-h, 0, h] : [0])) {
+      const cx = x + ox, cy = y + oy; if (cx < -r || cx > w + r || cy < -r || cy > h + r) continue;
+      const gr = g.createRadialGradient(cx, cy, 0, cx, cy, r); gr.addColorStop(0, 'rgba(' + col + ',' + a + ')'); gr.addColorStop(1, 'rgba(' + col + ',0)'); g.fillStyle = gr; g.fillRect(cx - r, cy - r, r * 2, r * 2);
+    }
+  }
+}
 {
-  const n = 700, pos = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) { const a = Math.random() * 6.283, b = Math.acos(Math.random() * 0.9 + 0.08), r = 700; pos[i * 3] = Math.sin(b) * Math.cos(a) * r; pos[i * 3 + 1] = Math.cos(b) * r; pos[i * 3 + 2] = Math.sin(b) * Math.sin(a) * r; }
-  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  scene.add(new THREE.Points(g, new THREE.PointsMaterial({ size: 1.6, sizeAttenuation: false, color: 0xcfe0ff, fog: false })));
+  const g = new THREE.SphereGeometry(900, 24, 16), pos = g.attributes && g.attributes.position;
+  if (pos && pos.count) {
+    const cols = new Float32Array(pos.count * 3), top = [0.22, 0.48, 0.90], hor = [0.80, 0.89, 0.97];
+    for (let i = 0; i < pos.count; i++) { const t = Math.pow(clamp(pos.getY(i) / 900, 0, 1), 0.55); for (let k = 0; k < 3; k++) cols[i * 3 + k] = srgbLin(lerp(hor[k], top[k], t)); }
+    g.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+    const dome = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false })); dome.renderOrder = -10; scene.add(dome);
+  }
 }
-const moonTex = mkCanvas(128, 128, (g, w, h) => { const r = g.createRadialGradient(w / 2, h / 2, 6, w / 2, h / 2, w / 2); r.addColorStop(0, 'rgba(235,240,255,1)'); r.addColorStop(0.35, 'rgba(200,215,245,.95)'); r.addColorStop(0.5, 'rgba(120,150,210,.25)'); r.addColorStop(1, 'rgba(60,80,140,0)'); g.fillStyle = r; g.fillRect(0, 0, w, h); });
-const moon = new THREE.Mesh(new THREE.PlaneGeometry(160, 160), new THREE.MeshBasicMaterial({ map: moonTex, color: moonTex ? 0xffffff : 0xdde6ff, transparent: true, fog: false, depthWrite: false }));
-moon.position.set(-320, 300, -260); scene.add(moon);
-const cloudTex = mkCanvas(512, 512, (g, w, h) => {
-  g.clearRect(0, 0, w, h);
-  for (let i = 0; i < 200; i++) { const x = Math.random() * w, y = Math.random() * h, r = 24 + Math.random() * 64, a = 0.05 + Math.random() * 0.13; const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(96,112,150,' + a + ')'); gr.addColorStop(1, 'rgba(96,112,150,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); }
-});
+const sunTex = mkCanvas(256, 256, (g, w, h) => { const r = g.createRadialGradient(w / 2, h / 2, 4, w / 2, h / 2, w / 2); r.addColorStop(0, 'rgba(255,255,240,1)'); r.addColorStop(0.12, 'rgba(255,246,205,1)'); r.addColorStop(0.3, 'rgba(255,226,150,.42)'); r.addColorStop(1, 'rgba(255,200,120,0)'); g.fillStyle = r; g.fillRect(0, 0, w, h); });
+const sun = new THREE.Sprite(new THREE.SpriteMaterial({ map: sunTex, color: sunTex ? 0xffffff : 0xfff2c8, transparent: true, fog: false, depthWrite: false, blending: THREE.AdditiveBlending }));
+sun.position.set(-350, 120, -300); sun.scale.set(260, 260, 1); scene.add(sun);
+const cloudTex = mkCanvas(512, 512, (g, w, h) => { g.fillStyle = 'rgb(204,219,238)'; g.fillRect(0, 0, w, h); blobs(g, w, h, 110, 30, 100, '150,172,206', 0.16, 0.3, true); blobs(g, w, h, 230, 22, 82, '255,255,255', 0.2, 0.45, true); });
+const wispTex = mkCanvas(512, 512, (g, w, h) => { g.clearRect(0, 0, w, h); blobs(g, w, h, 150, 24, 90, '255,255,255', 0.06, 0.2, true); });
 if (cloudTex) { cloudTex.wrapS = cloudTex.wrapT = THREE.RepeatWrapping; cloudTex.repeat && cloudTex.repeat.set(5, 5); }
-function mkCloudPlane(y, op, col) { const m = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400), new THREE.MeshBasicMaterial({ map: cloudTex, color: cloudTex ? col : 0x101828, transparent: true, opacity: op, fog: false, depthWrite: false })); m.rotation.x = -Math.PI / 2; m.position.y = y; scene.add(m); return m; }
-const cloudsLow = mkCloudPlane(-55, 0.95, 0xffffff), cloudsNear = mkCloudPlane(-9, 0.75, 0xc8d4ee);
-const puffTex = mkCanvas(128, 128, (g, w, h) => { const r = g.createRadialGradient(w / 2, h / 2, 2, w / 2, h / 2, w / 2); r.addColorStop(0, 'rgba(40,48,72,.95)'); r.addColorStop(0.6, 'rgba(30,38,60,.55)'); r.addColorStop(1, 'rgba(20,26,44,0)'); g.fillStyle = r; g.fillRect(0, 0, w, h); });
-const puffs = [];
-for (let i = 0; i < 10; i++) {
-  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: puffTex, color: puffTex ? 0xffffff : 0x202838, transparent: true, opacity: 0.55, fog: false, depthWrite: false }));
-  const a = i / 10 * 6.283; sp.position.set(85 + Math.cos(a) * 80, -40 + Math.sin(a * 2.3) * 30, 30 + Math.sin(a) * 110); const s = 80 + (i % 4) * 25; sp.scale.set(s, s * 0.6, 1); scene.add(sp); puffs.push(sp);
+if (wispTex) { wispTex.wrapS = wispTex.wrapT = THREE.RepeatWrapping; wispTex.repeat && wispTex.repeat.set(6, 6); }
+const cloudsLow = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400), new THREE.MeshBasicMaterial({ map: cloudTex, color: cloudTex ? 0xffffff : 0xc8dbf2, fog: false }));
+cloudsLow.rotation.x = -Math.PI / 2; cloudsLow.position.y = -55; scene.add(cloudsLow);
+const cloudsNear = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400), new THREE.MeshBasicMaterial({ map: wispTex, color: 0xffffff, transparent: true, opacity: 0.85, fog: false, depthWrite: false }));
+cloudsNear.rotation.x = -Math.PI / 2; cloudsNear.position.y = -9; scene.add(cloudsNear);
+const cumTex = mkCanvas(256, 256, (g, w, h) => { blobs(g, w, h, 14, 40, 70, '186,198,218', 0.8, 0.95, false); blobs(g, w, h, 16, 30, 60, '255,255,255', 0.75, 0.95, false); });
+function mkSprite(tex, col, op, x, y, z, sw, sh, keep) {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: tex ? col : 0xdde6f4, transparent: true, opacity: op, fog: false, depthWrite: false }));
+  sp.position.set(x, y, z); sp.scale.set(sw, sh, 1); scene.add(sp); return sp;
 }
+for (let i = 0; i < 16; i++) {          // gumpalan awan putih di kejauhan
+  const az = Math.random() * 6.283, rad = 260 + Math.random() * 380; if (Math.abs(Math.atan2(Math.sin(az), Math.cos(az))) < 0.6 && rad < 420) continue;
+  const w = 170 + Math.random() * 170; mkSprite(cumTex, 0xffffff, 0.96, Math.cos(az) * rad, -25 + Math.random() * 90, Math.sin(az) * rad, w, w * 0.62);
+}
+// mendung tebal di sisi kiri (tempat monster muncul): latar abu terang di belakang, gumpalan gelap menutupi di depan
+const stormMats = [];
+function stormSprite(tex, col, op, x, y, z, w, h) { const sp = mkSprite(tex, 0xffffff, op, x, y, z, w, h); const c = new THREE.Color(col); stormMats.push({ mat: sp.material, base: [c.r, c.g, c.b], op }); sp.material.color.setRGB(c.r, c.g, c.b); return sp; }
+const stormBackTex = mkCanvas(256, 256, (g, w, h) => { blobs(g, w, h, 22, 40, 90, '176,186,204', 0.7, 0.95, false); });
+const stormTex = mkCanvas(256, 256, (g, w, h) => { blobs(g, w, h, 20, 34, 84, '78,88,108', 0.6, 0.95, false); });
+const stormVeil = [];
+for (let i = 0; i < 3; i++) stormSprite(stormBackTex, 0xffffff, 1, 290 + i * 25, 15 + i * 22, 10 + i * 65, 720, 430);
+for (let i = 0; i < 9; i++) stormVeil.push(stormSprite(stormTex, 0xffffff, 0.6, 96 + (i % 3) * 14, -70 + (i * 37) % 95, 6 + i * 13, 95 + (i % 4) * 26, 68 + (i % 3) * 14));
 
 /* ---------- audio buatan ---------- */
 const AU = { ctx: null, on: true, master: null, hum: null, rumble: null, noise: null, murmur: null };
@@ -104,11 +129,12 @@ const sfx = {
   slam() { nburst(1.0, 0.7, 700); tone(54, 1.2, 'sine', 0.6, 22); },
   scream(k) { const f = 620 + Math.random() * 380; tone(f, 0.9 + Math.random() * 0.5, 'sawtooth', 0.045 * (k || 1), f * 1.5, Math.random() * 0.15); tone(f * 2, 0.7, 'square', 0.02 * (k || 1), f * 2.6); },
   static(d) { nburst(d || 0.8, 0.22, 3800); },
+  growl() { tone(46, 2.4, 'sawtooth', 0.2, 30); nburst(2.0, 0.2, 280); },
   rattle() { nburst(0.5, 0.14, 1500); }
 };
 
 /* ---------- variabel keadaan ---------- */
-const G = { state: 'load', started: false, turb: 0, cabin: 1, flash: 0, blackout: 0 };
+const G = { state: 'load', started: false, turb: 0, cabin: 1, flash: 0, blackout: 0, look: 0, brace: 0, panic: 0, ibuTalk: 0 };
 const CAM = { mode: 'cine', px: 0, py: 0, pz: 0, lx: 0, ly: 0, lz: 0, fov: 70, leanX: 0, leanY: 0, leanZ: 0 };
 const SEAT = { x: seatX(1, 2), z: rowZ(12) + 0.28, eye: CUSHION + 0.77, yaw: 0, pitch: 0, guide: false, yawT: 0, pitT: 0, lookSum: 0 };
 let TW = [], TIM = [], shakeAmp = 0, roll = 0, flickerT = 0;
@@ -148,13 +174,28 @@ function setupCabin(g) {
   root.add(g.scene); M.cabin = g.scene;
 }
 function setupLuar(g) { g.scene.traverse(o => { if (o.isMesh) { o.material = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }); } }); g.scene.visible = false; root.add(g.scene); M.luar = g.scene; }
-const kr = { g: new THREE.Group(), mats: [], rise: 0, flashT: 0 };
+const kr = { g: new THREE.Group(), mats: [], rise: 0, near: 0, amp: 0.11, flashT: 0, pos: null, base: null, fc: 0 };
 function setupKraken(g) {
   let mesh = null; g.scene.traverse(o => { if (o.isMesh && !mesh) mesh = o; });
   if (!mesh) return;
-  const m = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false, side: THREE.DoubleSide }); kr.mats.push(m);
-  const k = new THREE.Mesh(mesh.geometry, m); k.frustumCulled = false; kr.g.add(k);
-  kr.g.scale.setScalar(40); kr.g.rotation.y = -Math.PI / 2; kr.g.position.set(150, -150, 46); kr.g.visible = false; scene.add(kr.g);
+  const geo = mesh.geometry;
+  const m = new THREE.MeshBasicMaterial({ color: 0x11161f, fog: false, side: THREE.DoubleSide }); kr.mats.push(m);   // siluet gelap tanpa detail
+  const k = new THREE.Mesh(geo, m); k.frustumCulled = false; kr.g.add(k);
+  if (geo.attributes && geo.attributes.position && geo.attributes.position.array) { kr.pos = geo.attributes.position; kr.base = new Float32Array(kr.pos.array); }
+  kr.g.scale.setScalar(40); kr.g.rotation.y = -Math.PI / 2; kr.g.position.set(160, -150, 46); kr.g.visible = false; scene.add(kr.g);
+}
+// tentakel meliuk: titik-titik jauh dari kepala bergeser mengikuti gelombang
+function animKraken(t) {
+  if (!kr.pos || !kr.base) return;
+  const p = kr.pos.array, b = kr.base, A = kr.amp, n = b.length / 3;
+  for (let i = 0; i < n; i++) {
+    const x = b[i * 3], y = b[i * 3 + 1], z = b[i * 3 + 2];
+    const w = clamp((2.2 - y) / 2.6, 0, 1) * clamp(0.35 + Math.hypot(x, z) * 0.7, 0, 1);
+    if (w <= 0) { p[i * 3] = x; p[i * 3 + 1] = y; p[i * 3 + 2] = z; continue; }
+    const ph = t * 1.6 + y * 2.8 + x * 2.0;
+    p[i * 3] = x + A * w * Math.sin(ph); p[i * 3 + 1] = y + A * 0.5 * w * Math.sin(t * 1.7 + x * 3 + z * 2); p[i * 3 + 2] = z + A * w * Math.cos(ph * 0.9 + z * 2.5);
+  }
+  kr.pos.needsUpdate = true;
 }
 function orangNode(name) { let f = null; if (!M.orang) return null; M.orang.traverse(o => { if (!f && (o.name === name)) f = o; }); return f; }
 const npcs = [];
@@ -162,10 +203,46 @@ function prepOrang(g) {
   g.scene.traverse(o => { if (!o.isMesh) return; const hasVC = !!(o.geometry && o.geometry.attributes && o.geometry.attributes.color); o.material = litMat(o.material, hasVC); });
   M.orang = g.scene;
 }
+const PIV = { PS1: [0, 1.144, 0.016], Wanita: [-0.029, 1.102, 0.023], Pria: [-0.002, 1.164, 0.068] }, HIP = [0, 0.47, 0];
+const kindOf = n => n.indexOf('PS1') === 0 ? 'PS1' : (n.indexOf('Wanita') === 0 ? 'Wanita' : 'Pria');
+const BEH = ['look', 'look', 'calm', 'calm', 'read', 'sleep'];
 function putNpc(name, x, z, ry, tag) {
-  const src = orangNode(name); if (!src) return null;
-  const o = src.clone(true); o.position.set(x, FLOORY - 0.05, z); o.rotation.y = ry || 0; root.add(o);
-  const n = { o, x, z, y: o.position.y, tag: tag || name, ph: Math.random() * 6.28 }; npcs.push(n); return n;
+  const g = new THREE.Group(); g.position.set(x, FLOORY - 0.05, z); g.rotation.y = ry || 0;
+  const n = { o: g, x, z, y: g.position.y, tag: tag || name, ph: Math.random() * 6.28, w: 0.35 + Math.random() * 0.4, side: x >= 0 ? 1 : -1, beh: BEH[Math.floor(Math.random() * BEH.length)], lw: 0.7 + Math.random() * 0.3, bw: 0.5 + Math.random() * 0.7, tk: 0, torP: null, headP: null };
+  const legS = orangNode(name + '_leg'), torS = orangNode(name + '_tor'), headS = orangNode(name + '_head');
+  if (legS && torS && headS) {
+    const nk = PIV[kindOf(name)];
+    g.add(legS.clone(true));
+    const torP = new THREE.Group(); torP.position.set(HIP[0], HIP[1], HIP[2]); const tor = torS.clone(true); tor.position.set(-HIP[0], -HIP[1], -HIP[2]); torP.add(tor); g.add(torP);
+    const headP = new THREE.Group(); headP.position.set(nk[0] - HIP[0], nk[1] - HIP[1], nk[2] - HIP[2]); const head = headS.clone(true); head.position.set(-nk[0], -nk[1], -nk[2]); headP.add(head); torP.add(headP);
+    n.torP = torP; n.headP = headP;
+  } else { const src = orangNode(name); if (!src) return null; g.add(src.clone(true)); }
+  root.add(g); npcs.push(n); return n;
+}
+// gerakan penumpang: napas, menoleh, membaca, tertidur; saat panik merunduk atau menoleh ke jendela
+function animNpcs(t, dt) {
+  const k = Math.min(1, dt * 5), look = G.look, brace = G.brace, tb = G.turb;
+  for (const n of npcs) {
+    const ph = n.ph, g = n.o;
+    if (tb > 0.2) { g.position.y = n.y + Math.sin(t * 14 + ph) * 0.012 * tb; g.rotation.z = Math.sin(t * 9 + ph) * 0.03 * tb; g.position.x = n.x + Math.sin(t * 11 + ph * 2) * 0.012 * tb; }
+    else { g.position.y = n.y; g.position.x = n.x; g.rotation.z = 0; }
+    if (!n.torP) {                                   // model tunggal (penumpang jauh / MC tidur)
+      g.scale.y = 1 + Math.sin(t * 1.5 + ph) * 0.004;
+      g.rotation.y += (look * 0.55 * n.lw - g.rotation.y) * k; g.rotation.x += (brace * 0.1 * n.bw - g.rotation.x) * k;
+      continue;
+    }
+    let hy = 0, hp = 0, lean = 0, rz = 0;
+    if (n.beh === 'look') { const gate = clamp(Math.sin(t * n.w * 0.37 + ph * 2) * 3, -1, 1) * 0.5 + 0.5; hy = Math.sin(t * n.w + ph) * 0.6 * gate; hp = Math.sin(t * 0.4 + ph) * 0.05; }
+    else if (n.beh === 'read') { hp = 0.32 + Math.sin(t * 0.8 + ph) * 0.03; lean = 0.09 + Math.sin(t * 0.5 + ph) * 0.01; hy = Math.sin(t * 0.3 + ph) * 0.1; }
+    else if (n.beh === 'sleep') { hp = 0.42 + Math.sin(t * 0.5 + ph) * 0.06; lean = 0.1; rz = Math.sin(t * 0.2 + ph) * 0.03; }
+    else { hy = Math.sin(t * 0.4 + ph) * 0.18; lean = Math.sin(t * 0.6 + ph) * 0.015; hp = Math.sin(t * 0.3 + ph) * 0.04; }
+    if (n.tag === 'ibu') { n.tk = lerp(n.tk, G.ibuTalk, Math.min(1, dt * 3)); hy = lerp(hy, 0.75, n.tk); hp = lerp(hp, 0.05, n.tk); lean = lerp(lean, 0, n.tk); }
+    const wl = look * n.lw, bw = brace * n.bw;
+    hy = lerp(hy, 1.15, wl); hp = lerp(hp, -0.05, wl); lean += bw * 0.3; hp += bw * 0.35;
+    hy += Math.sin(t * 17 + ph * 3) * 0.08 * G.panic;
+    n.torP.rotation.x += (lean - n.torP.rotation.x) * k; n.torP.rotation.z += (rz - n.torP.rotation.z) * k; n.torP.scale.y = 1 + Math.sin(t * 1.6 + ph) * 0.004;
+    n.headP.rotation.y += (hy - n.headP.rotation.y) * k; n.headP.rotation.x += (hp - n.headP.rotation.x) * k;
+  }
 }
 function populate() {
   let seed = 7; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
@@ -214,9 +291,11 @@ function setCine(pos, look) { CAM.mode = 'cine'; CAM.px = pos[0]; CAM.py = pos[1
 function hint(t) { if (!t) { el.hint.classList.remove('on'); return; } el.hint.textContent = t; el.hint.classList.add('on'); }
 async function say(who, text, o) {
   o = o || {}; const w = el.sub.querySelector('.who'), x = el.sub.querySelector('.txt');
+  G.ibuTalk = who && who.indexOf('Ibu') === 0 ? 1 : 0;
   w.textContent = who || ''; w.style.display = who ? 'block' : 'none'; x.className = 'txt' + (o.thought ? ' th' : ''); x.textContent = ''; el.sub.classList.add('on');
   for (let i = 1; i <= text.length; i++) { x.textContent = text.slice(0, i); if (i % 3 === 0 && o.voice) sfx.blip(); await wait(0.028); }
   await wait(o.hold !== undefined ? o.hold : Math.max(1.3, text.length * 0.035));
+  G.ibuTalk = 0;
   if (!o.keep) el.sub.classList.remove('on');
 }
 const think = (t, o) => say('', t, Object.assign({ thought: true }, o));
@@ -242,7 +321,7 @@ async function story() {
   await wait(1.2);
   await say('', 'Tiga hari di Padang. Pemakaman Nenek, tangis Ibu, dan bau hujan di kampung.', { thought: true });
   await say('', 'Sekarang aku hanya ingin pulang.', { thought: true });
-  await card('PENERBANGAN PULANG', 'Padang \u2192 Jakarta \u00b7 Pukul 21.47', 3600);
+  await card('PENERBANGAN PULANG', 'Padang \u2192 Jakarta \u00b7 Pukul 14.47', 3600);
   /* 2. di dalam kabin: MC tertidur */
   await fade(1, 0.9); if (M.luar) M.luar.visible = false;
   const mc = putNpc('MC_tidur', SEAT.x, rowZ(12) + 0.3, 0, 'mc');
@@ -260,23 +339,23 @@ async function story() {
   hint('Geser jari di layar untuk melihat sekeliling'); const t0 = SEAT.lookSum;
   for (let i = 0; i < 60 && SEAT.lookSum - t0 < 3.2; i++) await wait(0.25);
   hint('');
-  await think('Kabin remang dan hangat. Ada yang membaca, ada yang tidur, ada yang menonton film di ponselnya.');
+  await think('Kabin hangat dan tenang. Cahaya matahari masuk dari jendela. Ada yang membaca, ada yang tidur, ada yang menonton film.');
   await say('Ibu di sebelah', 'Sudah bangun, Nak? Tadi sempat goyang sedikit.', { voice: true });
   await say('Aku', 'Sudah jam berapa, Bu?', { voice: true });
-  await say('Ibu di sebelah', 'Baru setengah sepuluh. Katanya sebentar lagi kita masuk awan badai.', { voice: true });
-  await think('Awan badai... di ketinggian ini?');
+  await say('Ibu di sebelah', 'Baru jam tiga kurang, Nak. Katanya sebentar lagi kita masuk awan mendung.', { voice: true });
+  await think('Awan mendung? Padahal tadi langit cerah sekali.');
   /* 3. kapten */
-  await pa('Selamat malam, Bapak dan Ibu penumpang. Di sini kapten kalian berbicara.');
-  await pa('Di depan kita ada sel badai yang cukup besar. Kami akan berusaha melewatinya secepat mungkin.');
+  await pa('Selamat siang, Bapak dan Ibu penumpang. Di sini kapten kalian berbicara.');
+  await pa('Di depan kita ada awan mendung yang sangat tebal. Kami akan berusaha melewatinya secepat mungkin.');
   await pa('Mohon semua penumpang tetap duduk, kencangkan sabuk pengaman, dan tetap tenang.');
   if (AU.murmur) AU.murmur.gain.value = 0.11;
   sfx.click(); await think('Klik. Sabuk pengaman terpasang.');
   await say('Ibu di sebelah', 'Aduh, semoga tidak lama...', { voice: true });
   /* 4. guncangan */
-  G.turb = 0.5; sfx.rattle(); if (AU.rumble) AU.rumble.gain.value = 0.25; flickerLights(2.5);
+  G.turb = 0.5; G.brace = 0.3; sfx.rattle(); if (AU.rumble) AU.rumble.gain.value = 0.25; flickerLights(2.5);
   await wait(2.2); bolt(0.6); await wait(1.4);
   await say('Penumpang di belakang', 'Ini bukan turbulensi biasa!', { voice: true, hold: 0.6 });
-  G.turb = 0.9; if (AU.rumble) AU.rumble.gain.value = 0.5; bolt(1); for (let i = 0; i < 4; i++) sfx.scream(0.7);
+  G.turb = 0.9; G.brace = 0.6; if (AU.rumble) AU.rumble.gain.value = 0.5; bolt(1); for (let i = 0; i < 4; i++) sfx.scream(0.7);
   await wait(1.6);
   await pa('Bapak Ibu... kami mengalami turbulensi... harap semua... kembali ke...');
   sfx.static(1.2); G.turb = 1.4; shakeAmp = 0.12; if (AU.rumble) AU.rumble.gain.value = 0.85;
@@ -285,20 +364,20 @@ async function story() {
   await wait(2.4); bolt(1);
   await say('Ibu di sebelah', 'Ya Allah! Lihat! Di luar jendela!', { voice: true, hold: 0.5 });
   /* 5. melihat ke jendela */
-  SEAT.guide = true; SEAT.yawT = 1.5; SEAT.pitT = -0.13;
+  tween(G, { look: 1, brace: 0.15 }, 1.6); SEAT.guide = true; SEAT.yawT = 1.5; SEAT.pitT = -0.13;
   tween(CAM, { leanX: 0.2, leanY: -0.13, leanZ: -0.14 }, 1.6); CAM.fov = 66;
   await wait(1.2);
-  kr.g.visible = true; await tween(kr, { rise: 1 }, 5.0);
+  kr.g.visible = true; kr.tt = 0; sfx.growl(); tween(kr, { near: 1 }, 10); await tween(kr, { rise: 1 }, 5.0);
   await say('', 'Di balik awan hitam itu... ada sesuatu.', { thought: true, hold: 0.8 });
   bolt(1); await wait(0.4);
   kr.flashT = 1; await wait(0.9);
   await say('Ibu di sebelah', 'Itu... itu apa...?', { voice: true, hold: 0.7 });
   bolt(1); for (let i = 0; i < 6; i++) sfx.scream(1.1);
-  await say('Penumpang di belakang', 'MONSTER! ITU MONSTER!', { voice: true, hold: 0.5 });
+  G.panic = 1; await say('Penumpang di belakang', 'MONSTER! ITU MONSTER!', { voice: true, hold: 0.5 });
   await think('Itu bukan awan. Itu... hidup.', { hold: 1.0 });
   await pa('Semua kru... ke posisi... Ya Tuhan... jangan... jangan lihat...');
   /* 6. hantaman */
-  G.turb = 2; shakeAmp = 0.4; sfx.slam(); bolt(1); flickerLights(1.5);
+  G.turb = 2; shakeAmp = 0.4; kr.amp = 0.3; tween(G, { look: 0, brace: 1 }, 0.4); sfx.slam(); bolt(1); flickerLights(1.5);
   await wait(0.7); sfx.slam(); G.blackout = 3; shakeAmp = 0.7; sfx.scream(1.3);
   await wait(1.0); await fade(1, 0.35);
   G.turb = 0; shakeAmp = 0; hint('');
@@ -312,11 +391,11 @@ function showPanel(html) { el.panel.innerHTML = html; el.panel.classList.add('on
 function hidePanel() { el.panel.classList.remove('on'); }
 function showTitle() {
   G.state = 'title'; allowLook = false; hint(''); el.sub.classList.remove('on'); el.pa.classList.remove('on');
-  showPanel('<div class="board"><h1>Penerbangan Malam</h1><h2>Bab 1: Penerbangan Pulang</h2><p>Kamu pulang dari Sumatra dengan pesawat malam. Semua tampak biasa... sampai langit di luar jendela berubah. Putar HP ke mendatar dan pakai earphone.</p><button class="cta" data-do="start">Mulai</button><button class="cta alt" data-do="bright">Kecerahan: ' + BRN[brI] + '</button></div>');
+  showPanel('<div class="board"><h1>Penerbangan Pulang</h1><h2>Bab 1: Awan Mendung</h2><p>Kamu pulang dari Sumatra dengan pesawat siang. Semua tampak biasa... sampai awan di luar jendela berubah. Putar HP ke mendatar dan pakai earphone.</p><button class="cta" data-do="start">Mulai</button><button class="cta alt" data-do="bright">Kecerahan: ' + BRN[brI] + '</button></div>');
 }
 function endStory() { G.state = 'end'; showPanel('<div class="board"><h1>Bersambung</h1><h2>Bab 1 selesai</h2><p>Bab 2 akan dimulai dengan kamu terbangun di kabin yang gelap. Kabari aku bagian mana yang ingin diperbaiki dulu.</p><button class="cta" data-do="start">Ulangi Bab 1</button><button class="cta alt" data-do="menu">Ke menu</button></div>'); }
 function resetStory() {
-  TW = []; TIM = []; G.turb = 0; G.flash = 0; G.blackout = 0; shakeAmp = 0; roll = 0; flickerT = 0; CAM.leanX = CAM.leanY = CAM.leanZ = 0; SEAT.guide = false; allowLook = false;
+  TW = []; TIM = []; G.turb = 0; G.flash = 0; G.blackout = 0; G.look = 0; G.brace = 0; G.panic = 0; G.ibuTalk = 0; kr.amp = 0.11; kr.near = 0; shakeAmp = 0; roll = 0; flickerT = 0; CAM.leanX = CAM.leanY = CAM.leanZ = 0; SEAT.guide = false; allowLook = false;
   kr.g.visible = false; kr.rise = 0; el.blur.style.opacity = '0'; el.card.classList.remove('on'); hint(''); el.sub.classList.remove('on'); el.pa.classList.remove('on');
   for (let i = npcs.length - 1; i >= 0; i--) if (npcs[i].tag === 'mc') { root.remove(npcs[i].o); npcs.splice(i, 1); }
   if (M.luar) M.luar.visible = false;
@@ -342,22 +421,29 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) pause
 let lastT = performance.now(), fpsAcc = 0, fpsN = 0;
 function updateWorld(dt, t) {
   G.flash = Math.max(0, G.flash - dt * 2.6);
-  scene.background.copy(SKY).lerp(SKYFLASH, G.flash * 0.7);
   flashL.intensity = G.flash * 900;
-  kr.mats.forEach(m => { const f = 1 + kr.flashT * 2.4 + G.flash * 1.4; m.color.setRGB(f, f, f); });
+  const sf = 1 + G.flash * 1.8; stormMats.forEach(x => x.mat.color.setRGB(Math.min(3, x.base[0] * sf), Math.min(3, x.base[1] * sf), Math.min(3, x.base[2] * sf)));
+  const kf = 1 + kr.flashT * 1.2 + G.flash * 0.8; kr.mats.forEach(m => m.color.setRGB(0.006 * kf, 0.008 * kf, 0.014 * kf));
   if (kr.flashT) kr.flashT = Math.max(0, kr.flashT - dt * 0.5);
   let cab = G.cabin;
   if (flickerT > 0) { flickerT -= dt; cab *= (Math.sin(t * 43) > 0.1 ? 1 : 0.05); }
   if (G.blackout > 0) { G.blackout -= dt; cab = 0; }
   const li = 0.15 + 0.85 * cab;
-  ambient.intensity = 1.5 * li; hemi.intensity = 1.3 * li; cabinL.forEach((l, i) => { l.intensity = 6 * cab; l.position.set(0.3 - i * 0.6, 6.8, SEAT.z + (i ? 2.2 : -1.5)); });
+  ambient.intensity = 1.1 * li; hemi.intensity = 1.1 * li + G.flash * 1.4; sunLight.intensity = 1.2 * li;
+  cabinL.forEach((l, i) => { l.intensity = 3 * cab; l.position.set(0.3 - i * 0.6, 6.8, SEAT.z + (i ? 2.2 : -1.5)); });
   lampMats.forEach(m => m.color.setRGB(cab, cab * 0.95, cab * 0.85));
   if (cloudTex && cloudTex.offset) { cloudTex.offset.y += dt * 0.018; cloudTex.offset.x += dt * 0.004; }
+  if (wispTex && wispTex.offset) { wispTex.offset.y += dt * 0.03; wispTex.offset.x += dt * 0.008; }
   root.rotation.z = Math.sin(t * 1.3) * 0.004 * (1 + G.turb * 6) + (G.turb > 1 ? Math.sin(t * 9) * 0.01 * G.turb : 0);
   root.position.y = Math.sin(t * 2.1) * 0.02 * G.turb;
-  if (G.turb > 0.2) for (const n of npcs) { n.o.position.y = n.y + Math.sin(t * 14 + n.ph) * 0.012 * G.turb; n.o.rotation.z = Math.sin(t * 9 + n.ph) * 0.03 * G.turb; n.o.position.x = n.x + Math.sin(t * 11 + n.ph * 2) * 0.012 * G.turb; }
-  if (kr.rise > 0.005) { kr.g.visible = true; const y = lerp(-150, -95, ease(clamp(kr.rise, 0, 1))); kr.g.position.set(150 + Math.sin(t * 0.3) * 4, y + Math.sin(t * 0.6) * 1.5, 46); kr.g.rotation.y = -Math.PI / 2 + Math.sin(t * 0.25) * 0.12; } else kr.g.visible = false;
-  puffs.forEach((p, i) => { p.material.opacity = 0.5 + 0.12 * Math.sin(t * 0.4 + i); });
+  animNpcs(t, dt);
+  if (kr.rise > 0.005) {
+    kr.g.visible = true; kr.tt = (kr.tt || 0) + dt;
+    const nr = ease(clamp(kr.near, 0, 1)), x = lerp(165, 122, nr) + Math.sin(t * 0.3) * 4, y = lerp(-150, -95, ease(clamp(kr.rise, 0, 1))), z = 42 + Math.sin(kr.tt * 0.14) * 24;
+    kr.g.position.set(x, y + Math.sin(t * 0.6) * 1.5, z); kr.g.rotation.y = -Math.PI / 2 + Math.sin(t * 0.25) * 0.14; kr.g.scale.setScalar(40 * (1 + Math.sin(t * 0.9) * 0.012));
+    if ((kr.fc = (kr.fc + 1) % 2) === 0) animKraken(t);
+  } else kr.g.visible = false;
+  stormVeil.forEach((p, i) => { p.material.opacity = 0.5 + 0.12 * Math.sin(t * 0.4 + i); p.position.y += Math.sin(t * 0.3 + i) * 0.03; });
   for (const ci in seatChunks) { const c = seatChunks[ci], near = Math.abs(c.zc - camera.position.z) < 3.6; c.H.forEach(o => { o.visible = near; }); c.L.forEach(o => { o.visible = !near; }); }
   el.redfx.style.opacity = String(clamp(G.turb * 0.1 + (G.blackout > 0 ? 0.2 : 0), 0, 0.6));
 }

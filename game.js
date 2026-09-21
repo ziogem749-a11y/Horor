@@ -1,427 +1,387 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
-/* =====================  PENERBANGAN MALAM  =====================
-   Kamu terjebak di kabin pesawat yang sunyi. Sesuatu yang sangat besar mengitari pesawat dari luar.
-   Ia tertarik pada cahaya dan suara. Cari 3 sekring, pasang di panel depan, lalu bertahan sampai bantuan datang. */
+/* =====================  PENERBANGAN MALAM · BAB 1: PENERBANGAN PULANG  =====================
+   MC pulang dari Sumatra. Ia terbangun di kursi pesawat, kapten meminta penumpang tenang,
+   pesawat berguncang hebat, lalu semua orang melihat monster raksasa di balik awan badai. */
 
 const $ = s => document.querySelector(s);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
+const ease = t => t * t * (3 - 2 * t);
 const el = {
-  gl: $('#gl'), touch: $('#touch'), joy: $('#joy'), obj: $('#obj'), toast: $('#toast'), act: $('#actBtn'), fade: $('#fade'), card: $('#card'),
-  panel: $('#panel'), err: $('#err'), pause: $('#pauseBtn'), mute: $('#muteBtn'), alertFill: $('#alertFill'), alertWrap: $('#alertWrap'), hp: $('#hp'),
-  redfx: $('#redfx'), crouch: $('#btnCrouch'), flash: $('#btnFlash'), sprint: $('#btnSprint'), loading: $('#loading'), ldFill: $('#ldFill'), ldPct: $('#ldPct')
+  gl: $('#gl'), touch: $('#touch'), toast: $('#toast'), fade: $('#fade'), card: $('#card'), panel: $('#panel'), err: $('#err'),
+  pause: $('#pauseBtn'), mute: $('#muteBtn'), redfx: $('#redfx'), blur: $('#blur'), sub: $('#sub'), pa: $('#pa'), hint: $('#hint'),
+  loading: $('#loading'), ldFill: $('#ldFill'), ldPct: $('#ldPct')
 };
-function showErr(m) { el.err.textContent = String(m).slice(0, 300); el.err.classList.add('on'); }
+function showErr(m) { el.err.textContent = String(m).slice(0, 320); el.err.classList.add('on'); }
 window.addEventListener('error', e => showErr(e.message + ' @' + (e.lineno || '')));
 window.addEventListener('unhandledrejection', e => showErr('janji ditolak: ' + (e.reason && e.reason.message || e.reason)));
 
-/* ---------- konstanta kabin (diukur dari model pesawat_garuda.glb) ---------- */
-const FLOOR = 4.5, EYE = 1.62, EYE_CR = 1.05, AISLE = 0.22, Z0 = -9.6, Z1 = 14.0;
-const SEG = 1.5, SEG0 = -8.6, NSEG = 15;             // tirai jendela dibagi 15 segmen per sisi
-const QUAL = { pr: Math.min(window.devicePixelRatio || 1, 1.25) };
+/* ---------- ukuran kabin (diukur dari model) ---------- */
+const FLOORY = 5.15, CUSHION = 5.55, ROW0 = -9.14, PITCH = 0.845, NROW = 26;
+const rowZ = k => ROW0 + PITCH * k;
+const seatX = (side, col) => side * (0.56 + 0.48 * col);       // col 0 = sisi lorong, 2 = dekat jendela
 
 /* ---------- renderer, adegan, kamera ---------- */
 const renderer = new THREE.WebGLRenderer({ canvas: el.gl, antialias: false, powerPreference: 'high-performance' });
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-const BR = [1.2, 1.9, 2.8]; let brI = 0; try { brI = clamp(parseInt(localStorage.getItem('pw_br')) || 0, 0, 2); } catch (e) { }
-const BRN = ['normal', 'terang', 'sangat terang'];
+const BR = [1.25, 1.7, 2.3], BRN = ['normal', 'terang', 'sangat terang']; let brI = 1;
+try { brI = clamp(parseInt(localStorage.getItem('pw_br2')), 0, 2); if (isNaN(brI)) brI = 1; } catch (e) { }
 function applyBright() { renderer.toneMappingExposure = BR[brI]; }
-function cycleBright() { brI = (brI + 1) % 3; try { localStorage.setItem('pw_br', String(brI)); } catch (e) { } applyBright(); }
+function cycleBright() { brI = (brI + 1) % 3; try { localStorage.setItem('pw_br2', String(brI)); } catch (e) { } applyBright(); }
 applyBright();
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x02030a);
-scene.fog = new THREE.FogExp2(0x03050c, 0.045);
-const camera = new THREE.PerspectiveCamera(72, 1, 0.05, 900);
-function resize() {
-  const w = window.innerWidth, h = window.innerHeight;
-  renderer.setPixelRatio(QUAL.pr); renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
-  el.rot && el.rot.classList && el.rot.classList.toggle('on', h > w * 1.05);
-}
+const SKY = new THREE.Color(0x05070f), SKYFLASH = new THREE.Color(0xa9bdf0);
+scene.background = SKY.clone();
+const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 1200);
+const QUAL = { pr: Math.min(window.devicePixelRatio || 1, 1.25) };
+function resize() { const w = window.innerWidth, h = window.innerHeight; renderer.setPixelRatio(QUAL.pr); renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
 window.addEventListener('resize', resize); resize();
 
-const hemi = new THREE.HemisphereLight(0x3a4a66, 0x120c0a, 0.34); scene.add(hemi);
-const flash = new THREE.SpotLight(0xfff2d6, 3.2, 18, 0.5, 0.65, 1.2); scene.add(flash); scene.add(flash.target);
-const emer = [0, 1, 2].map(() => { const l = new THREE.PointLight(0xff3a26, 1.1, 4.2, 2); scene.add(l); return l; });
+const ambient = new THREE.AmbientLight(0xffffff, 1.5); scene.add(ambient);
+const hemi = new THREE.HemisphereLight(0xdfe8ff, 0x7a6a55, 1.3); scene.add(hemi);
+const cabinL = [0, 1].map(() => { const l = new THREE.PointLight(0xffe7c2, 6, 9, 1.4); scene.add(l); return l; });
+const flashL = new THREE.PointLight(0xa8c0ff, 0, 400, 1.0); flashL.position.set(60, 40, 10); scene.add(flashL);
 
-/* ---------- langit malam: bintang, bulan, awan yang bergulir ---------- */
+/* ---------- langit badai ---------- */
 function mkCanvas(w, h, draw) {
   try { const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext && c.getContext('2d'); if (!g) return null; draw(g, w, h); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; } catch (e) { return null; }
 }
 {
-  const n = 900, pos = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) { const a = Math.random() * 6.283, b = Math.acos(Math.random() * 0.95 + 0.02), r = 500; pos[i * 3] = Math.sin(b) * Math.cos(a) * r; pos[i * 3 + 1] = Math.cos(b) * r; pos[i * 3 + 2] = Math.sin(b) * Math.sin(a) * r; }
+  const n = 700, pos = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { const a = Math.random() * 6.283, b = Math.acos(Math.random() * 0.9 + 0.08), r = 700; pos[i * 3] = Math.sin(b) * Math.cos(a) * r; pos[i * 3 + 1] = Math.cos(b) * r; pos[i * 3 + 2] = Math.sin(b) * Math.sin(a) * r; }
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  scene.add(new THREE.Points(g, new THREE.PointsMaterial({ size: 1.7, sizeAttenuation: false, color: 0xcfe0ff, fog: false })));
+  scene.add(new THREE.Points(g, new THREE.PointsMaterial({ size: 1.6, sizeAttenuation: false, color: 0xcfe0ff, fog: false })));
 }
 const moonTex = mkCanvas(128, 128, (g, w, h) => { const r = g.createRadialGradient(w / 2, h / 2, 6, w / 2, h / 2, w / 2); r.addColorStop(0, 'rgba(235,240,255,1)'); r.addColorStop(0.35, 'rgba(200,215,245,.95)'); r.addColorStop(0.5, 'rgba(120,150,210,.25)'); r.addColorStop(1, 'rgba(60,80,140,0)'); g.fillStyle = r; g.fillRect(0, 0, w, h); });
-const moon = new THREE.Mesh(new THREE.PlaneGeometry(120, 120), new THREE.MeshBasicMaterial({ map: moonTex, color: moonTex ? 0xffffff : 0xdde6ff, transparent: true, fog: false, depthWrite: false }));
-moon.position.set(-260, 210, 320); scene.add(moon);
+const moon = new THREE.Mesh(new THREE.PlaneGeometry(160, 160), new THREE.MeshBasicMaterial({ map: moonTex, color: moonTex ? 0xffffff : 0xdde6ff, transparent: true, fog: false, depthWrite: false }));
+moon.position.set(-320, 300, -260); scene.add(moon);
 const cloudTex = mkCanvas(512, 512, (g, w, h) => {
-  g.fillStyle = 'rgba(0,0,0,0)'; g.clearRect(0, 0, w, h);
-  for (let i = 0; i < 160; i++) { const x = Math.random() * w, y = Math.random() * h, r = 22 + Math.random() * 60, a = 0.06 + Math.random() * 0.12; const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(80,100,150,' + a + ')'); gr.addColorStop(1, 'rgba(80,100,150,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); }
+  g.clearRect(0, 0, w, h);
+  for (let i = 0; i < 200; i++) { const x = Math.random() * w, y = Math.random() * h, r = 24 + Math.random() * 64, a = 0.05 + Math.random() * 0.13; const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(96,112,150,' + a + ')'); gr.addColorStop(1, 'rgba(96,112,150,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); }
 });
-if (cloudTex) { cloudTex.wrapS = cloudTex.wrapT = THREE.RepeatWrapping; cloudTex.repeat && cloudTex.repeat.set(4, 4); }
-const clouds = new THREE.Mesh(new THREE.PlaneGeometry(1600, 1600), new THREE.MeshBasicMaterial({ map: cloudTex, color: cloudTex ? 0xffffff : 0x0d1220, transparent: true, opacity: 0.95, fog: false, depthWrite: false }));
-clouds.rotation.x = -Math.PI / 2; clouds.position.set(0, -55, 0); scene.add(clouds);
+if (cloudTex) { cloudTex.wrapS = cloudTex.wrapT = THREE.RepeatWrapping; cloudTex.repeat && cloudTex.repeat.set(5, 5); }
+function mkCloudPlane(y, op, col) { const m = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400), new THREE.MeshBasicMaterial({ map: cloudTex, color: cloudTex ? col : 0x101828, transparent: true, opacity: op, fog: false, depthWrite: false })); m.rotation.x = -Math.PI / 2; m.position.y = y; scene.add(m); return m; }
+const cloudsLow = mkCloudPlane(-55, 0.95, 0xffffff), cloudsNear = mkCloudPlane(-9, 0.75, 0xc8d4ee);
+const puffTex = mkCanvas(128, 128, (g, w, h) => { const r = g.createRadialGradient(w / 2, h / 2, 2, w / 2, h / 2, w / 2); r.addColorStop(0, 'rgba(40,48,72,.95)'); r.addColorStop(0.6, 'rgba(30,38,60,.55)'); r.addColorStop(1, 'rgba(20,26,44,0)'); g.fillStyle = r; g.fillRect(0, 0, w, h); });
+const puffs = [];
+for (let i = 0; i < 10; i++) {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: puffTex, color: puffTex ? 0xffffff : 0x202838, transparent: true, opacity: 0.55, fog: false, depthWrite: false }));
+  const a = i / 10 * 6.283; sp.position.set(85 + Math.cos(a) * 80, -40 + Math.sin(a * 2.3) * 30, 30 + Math.sin(a) * 110); const s = 80 + (i % 4) * 25; sp.scale.set(s, s * 0.6, 1); scene.add(sp); puffs.push(sp);
+}
 
-/* ---------- audio buatan (tanpa berkas) ---------- */
-const AU = { ctx: null, on: true, master: null, heartT: 0 };
+/* ---------- audio buatan ---------- */
+const AU = { ctx: null, on: true, master: null, hum: null, rumble: null, noise: null, murmur: null };
 function auInit() {
   if (AU.ctx) { if (AU.ctx.state === 'suspended') AU.ctx.resume(); return; }
   try {
     const C = window.AudioContext || window.webkitAudioContext; if (!C) return;
-    AU.ctx = new C(); AU.master = AU.ctx.createGain(); AU.master.gain.value = AU.on ? 0.9 : 0; AU.master.connect(AU.ctx.destination);
-    const c = AU.ctx, len = c.sampleRate * 3, b = c.createBuffer(1, len, c.sampleRate), d = b.getChannelData(0); let l = 0;
+    const c = AU.ctx = new C(); AU.master = c.createGain(); AU.master.gain.value = AU.on ? 0.9 : 0; AU.master.connect(c.destination);
+    const len = c.sampleRate * 3, b = c.createBuffer(1, len, c.sampleRate), d = b.getChannelData(0); let l = 0;
     for (let i = 0; i < len; i++) { l = (l + 0.02 * (Math.random() * 2 - 1)) / 1.02; d[i] = l * 3.5; }
-    const s = c.createBufferSource(); s.buffer = b; s.loop = true; const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 210; const g = c.createGain(); g.gain.value = 0.55;
-    s.connect(f); f.connect(g); g.connect(AU.master); s.start();
-    const o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 57; const og = c.createGain(); og.gain.value = 0.018; o.connect(og); og.connect(AU.master); o.start();
     AU.noise = b;
+    const s = c.createBufferSource(); s.buffer = b; s.loop = true; const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 230; const g = c.createGain(); g.gain.value = 0.5; s.connect(f); f.connect(g); g.connect(AU.master); s.start(); AU.hum = { g, f };
+    const o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 56; const og = c.createGain(); og.gain.value = 0.014; o.connect(og); og.connect(AU.master); o.start();
+    const s2 = c.createBufferSource(); s2.buffer = b; s2.loop = true; s2.playbackRate.value = 1.7; const f2 = c.createBiquadFilter(); f2.type = 'bandpass'; f2.frequency.value = 140; const g2 = c.createGain(); g2.gain.value = 0; s2.connect(f2); f2.connect(g2); g2.connect(AU.master); s2.start(); AU.rumble = g2;
+    const s3 = c.createBufferSource(); s3.buffer = b; s3.loop = true; s3.playbackRate.value = 2.4; const f3 = c.createBiquadFilter(); f3.type = 'bandpass'; f3.frequency.value = 520; f3.Q.value = 0.7; const g3 = c.createGain(); g3.gain.value = 0.05; s3.connect(f3); f3.connect(g3); g3.connect(AU.master); AU.murmur = g3; s3.start();
   } catch (e) { AU.ctx = null; }
 }
-function tone(f, d, type, v, f2) {
+function tone(f, d, type, v, f2, delay) {
   if (!AU.ctx || !AU.on) return;
-  try { const c = AU.ctx, t = c.currentTime, o = c.createOscillator(), g = c.createGain(); o.type = type || 'sine'; o.frequency.setValueAtTime(f, t); if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + d); g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(g); g.connect(AU.master); o.start(t); o.stop(t + d + 0.02); } catch (e) { }
+  try { const c = AU.ctx, t = c.currentTime + (delay || 0), o = c.createOscillator(), g = c.createGain(); o.type = type || 'sine'; o.frequency.setValueAtTime(f, t); if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + d); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(g); g.connect(AU.master); o.start(t); o.stop(t + d + 0.03); } catch (e) { }
 }
-function nburst(d, v, fc) {
+function nburst(d, v, fc, delay) {
   if (!AU.ctx || !AU.on || !AU.noise) return;
-  try { const c = AU.ctx, t = c.currentTime, s = c.createBufferSource(); s.buffer = AU.noise; const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = fc || 600; const g = c.createGain(); g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.0001, t + d); s.connect(f); f.connect(g); g.connect(AU.master); s.start(t, Math.random() * 1.5, d + 0.05); } catch (e) { }
+  try { const c = AU.ctx, t = c.currentTime + (delay || 0), s = c.createBufferSource(); s.buffer = AU.noise; const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = fc || 600; const g = c.createGain(); g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.0001, t + d); s.connect(f); f.connect(g); g.connect(AU.master); s.start(t, Math.random() * 1.5, d + 0.05); } catch (e) { }
 }
 const sfx = {
-  step(v) { nburst(0.1, 0.16 * v, 520); },
-  chime() { tone(880, 0.5, 'sine', 0.14); tone(1320, 0.7, 'sine', 0.09); },
-  click() { tone(240, 0.05, 'square', 0.06); },
-  heart(k) { tone(52, 0.16, 'sine', 0.22 + 0.25 * k, 38); setTimeout(() => tone(46, 0.18, 'sine', 0.16 + 0.2 * k, 34), 190); },
-  growl() { tone(48, 1.6, 'sawtooth', 0.14, 30); nburst(1.4, 0.16, 300); },
-  slam() { nburst(0.7, 0.5, 900); tone(60, 0.6, 'sine', 0.5, 25); },
-  crack() { nburst(0.35, 0.28, 3200); tone(1500, 0.12, 'square', 0.05, 400); },
-  power() { tone(110, 1.4, 'sawtooth', 0.12, 330); tone(220, 1.6, 'sine', 0.1, 660); }
+  chime() { tone(880, 0.9, 'sine', 0.16); tone(660, 1.1, 'sine', 0.16, null, 0.42); },
+  blip() { tone(150 + Math.random() * 120, 0.07, 'sawtooth', 0.05); },
+  click() { tone(300, 0.04, 'square', 0.07); tone(180, 0.05, 'square', 0.05, null, 0.05); },
+  thunder(delay) { nburst(2.6, 0.55, 260, delay || 0); tone(48, 2.2, 'sine', 0.3, 26, delay || 0); },
+  crack() { nburst(0.25, 0.4, 4200); },
+  slam() { nburst(1.0, 0.7, 700); tone(54, 1.2, 'sine', 0.6, 22); },
+  scream(k) { const f = 620 + Math.random() * 380; tone(f, 0.9 + Math.random() * 0.5, 'sawtooth', 0.045 * (k || 1), f * 1.5, Math.random() * 0.15); tone(f * 2, 0.7, 'square', 0.02 * (k || 1), f * 2.6); },
+  static(d) { nburst(d || 0.8, 0.22, 3800); },
+  rattle() { nburst(0.5, 0.14, 1500); }
 };
 
-/* ---------- monster raksasa di luar pesawat (dibuat lewat kode, tanpa model) ---------- */
-const mon = { g: new THREE.Group(), side: 1, z: -30, dir: 1, dist: 16, y: 6.4, state: 'patrol', t: 0, cool: 6, phase: 0, reach: 0, eyeGlow: 0, hitDone: false, blockedHit: false };
-const NT = 7, NS = 16, TLEN = 11;
-const tent = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false }), NT * NS);
-{
-  const c = new THREE.Color();
-  for (let t = 0; t < NT; t++) for (let i = 0; i < NS; i++) { const s = i / (NS - 1); c.setRGB(0.07 + 0.1 * s, 0.05 + 0.07 * s, 0.13 + 0.16 * s); tent.setColorAt(t * NS + i, c); }
-  if (tent.instanceColor) tent.instanceColor.needsUpdate = true;
+/* ---------- variabel keadaan ---------- */
+const G = { state: 'load', started: false, turb: 0, cabin: 1, flash: 0, blackout: 0 };
+const CAM = { mode: 'cine', px: 0, py: 0, pz: 0, lx: 0, ly: 0, lz: 0, fov: 70, leanX: 0, leanY: 0, leanZ: 0 };
+const SEAT = { x: seatX(1, 2), z: rowZ(12) + 0.28, eye: CUSHION + 0.77, yaw: 0, pitch: 0, guide: false, yawT: 0, pitT: 0, lookSum: 0 };
+let TW = [], TIM = [], shakeAmp = 0, roll = 0, flickerT = 0;
+function tween(obj, props, dur, fn) {
+  return new Promise(res => { const from = {}; for (const k in props) from[k] = obj[k]; TW.push({ obj, from, to: props, t: 0, dur: Math.max(0.001, dur), res, fn: fn || ease }); });
 }
-tent.frustumCulled = false; mon.g.add(tent);
-const body = new THREE.Mesh(new THREE.SphereGeometry(4.6, 20, 14), new THREE.MeshBasicMaterial({ color: 0x0c0916, fog: false }));
-body.scale.set(1.25, 1, 1.5); body.position.set(0, 0, -4.2); mon.g.add(body);
-const eyeG = new THREE.Group(); mon.g.add(eyeG);
-const scleraTex = mkCanvas(256, 128, (g, w, h) => { g.fillStyle = '#c8bf94'; g.fillRect(0, 0, w, h); g.strokeStyle = 'rgba(150,20,20,.55)'; g.lineWidth = 1.4; for (let i = 0; i < 46; i++) { g.beginPath(); let x = Math.random() * w, y = Math.random() * h; g.moveTo(x, y); for (let k = 0; k < 6; k++) { x += (Math.random() - 0.5) * 30; y += (Math.random() - 0.5) * 16; g.lineTo(x, y); } g.stroke(); } });
-const sclera = new THREE.Mesh(new THREE.SphereGeometry(2.7, 24, 18), new THREE.MeshBasicMaterial({ map: scleraTex, color: scleraTex ? 0xffffff : 0xc8bf94, fog: false }));
-eyeG.add(sclera);
-const irisTex = mkCanvas(256, 256, (g, w, h) => {
-  const r = g.createRadialGradient(w / 2, h / 2, 6, w / 2, h / 2, w / 2); r.addColorStop(0, '#f6d640'); r.addColorStop(0.45, '#c8541a'); r.addColorStop(0.85, '#5c0d0d'); r.addColorStop(1, 'rgba(30,0,0,0)');
-  g.fillStyle = r; g.fillRect(0, 0, w, h); g.fillStyle = '#050203'; g.beginPath(); g.ellipse(w / 2, h / 2, 16, 88, 0, 0, 6.283); g.fill();
-});
-const iris = new THREE.Mesh(new THREE.CircleGeometry(1.5, 32), new THREE.MeshBasicMaterial({ map: irisTex, color: irisTex ? 0xffffff : 0xc8541a, transparent: true, fog: false, depthWrite: false }));
-iris.position.set(0, 0, 2.66); eyeG.add(iris);
-mon.g.position.set(mon.side * mon.dist, mon.y, mon.z); scene.add(mon.g);
-const _d = new THREE.Object3D();
-function updateMonster(dt, t) {
-  mon.t += dt;
-  const sideV = mon.side;
-  if (mon.state === 'patrol') {
-    mon.z += mon.dir * 7.5 * dt; mon.dist = lerp(mon.dist, 16 + Math.sin(t * 0.4) * 2.5, Math.min(1, dt * 2));
-    if (mon.z > 34 || mon.z < -34) { mon.dir *= -1; mon.side *= -1; mon.z = clamp(mon.z, -34, 34); }
-    if (mon.cool > 0) mon.cool -= dt;
-    mon.reach = lerp(mon.reach, 0.15, Math.min(1, dt * 2));
-  } else if (mon.state === 'approach') {
-    mon.dist = lerp(mon.dist, 5.4, Math.min(1, dt * 1.7)); mon.z += (P.z - mon.z) * Math.min(1, dt * 2.6); mon.reach = lerp(mon.reach, 1, Math.min(1, dt * 2));
-    mon.phase += dt;
-    if (mon.dist < 6.4 && mon.phase > 1.6) { mon.state = 'hit'; mon.phase = 0; mon.hitDone = false; }
-  } else if (mon.state === 'hit') {
-    mon.phase += dt;
-    if (!mon.hitDone && mon.phase > 0.25) { mon.hitDone = true; monsterHit(); }
-    if (mon.phase > 0.9) { mon.state = 'retreat'; mon.phase = 0; }
-  } else if (mon.state === 'retreat') {
-    mon.phase += dt; mon.dist = lerp(mon.dist, 19, Math.min(1, dt * 1.4)); mon.reach = lerp(mon.reach, 0, Math.min(1, dt * 2)); mon.z += mon.dir * 4 * dt;
-    if (mon.phase > 2.6) { mon.state = 'patrol'; mon.cool = G.powered ? 3 : 9; }
+function wait(sec) { return new Promise(res => TIM.push({ t: sec, res })); }
+function stepTweens(dt) {
+  for (const w of TW) { w.t += dt; const k = w.fn(clamp(w.t / w.dur, 0, 1)); for (const p in w.to) w.obj[p] = lerp(w.from[p], w.to[p], k); if (w.t >= w.dur) w.done = true; }
+  const dn = TW.filter(w => w.done); TW = TW.filter(w => !w.done); dn.forEach(w => w.res());
+  for (const w of TIM) w.t -= dt; const dt2 = TIM.filter(w => w.t <= 0); TIM = TIM.filter(w => w.t > 0); dt2.forEach(w => w.res());
+}
+
+/* ---------- pemuatan model ---------- */
+const root = new THREE.Group(); scene.add(root);
+const M = { cabin: null, luar: null, orang: null };
+const seatChunks = {};      // ci -> { H: [], L: [], zc }
+const lampMats = [];
+function loadGLB(url, w0, w1) {
+  return new Promise((res, rej) => {
+    new GLTFLoader().load(url, g => res(g), x => { if (x && x.total) { const p = Math.round(w0 + (w1 - w0) * x.loaded / x.total); el.ldFill.style.width = p + '%'; el.ldPct.textContent = p + '%'; } }, e => rej(new Error(url + ' tidak bisa dimuat (' + (e && e.message || 'tidak ditemukan') + ')')));
+  });
+}
+function litMat(src, useVC) { const m = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide, vertexColors: !!useVC }); if (src && src.map) { m.map = src.map; } return m; }
+function nameOf(o) { return (o.name || '') + '|' + ((o.parent && o.parent.name) || ''); }
+function setupCabin(g) {
+  const glass = new THREE.MeshBasicMaterial({ color: 0x0a1420, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide, fog: false });
+  g.scene.traverse(o => {
+    if (!o.isMesh) return; const nm = nameOf(o);
+    const hasVC = !!(o.geometry && o.geometry.attributes && o.geometry.attributes.color);
+    if (/Kaca/.test(nm)) { o.material = glass; o.renderOrder = 2; return; }
+    if (/Lampu/.test(nm)) { const m = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false }); o.material = m; lampMats.push(m); return; }
+    o.material = litMat(o.material, hasVC);
+    const m = /Kursi_(\d+)_([HL])/.exec(nm);
+    if (m) { const ci = +m[1]; (seatChunks[ci] = seatChunks[ci] || { H: [], L: [], zc: -10.3 + 1.7 * (ci + 0.5) })[m[2]].push(o); }
+  });
+  root.add(g.scene); M.cabin = g.scene;
+}
+function setupLuar(g) { g.scene.traverse(o => { if (o.isMesh) { o.material = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }); } }); g.scene.visible = false; root.add(g.scene); M.luar = g.scene; }
+const kr = { g: new THREE.Group(), mats: [], rise: 0, flashT: 0 };
+function setupKraken(g) {
+  let mesh = null; g.scene.traverse(o => { if (o.isMesh && !mesh) mesh = o; });
+  if (!mesh) return;
+  const m = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false, side: THREE.DoubleSide }); kr.mats.push(m);
+  const k = new THREE.Mesh(mesh.geometry, m); k.frustumCulled = false; kr.g.add(k);
+  kr.g.scale.setScalar(40); kr.g.rotation.y = -Math.PI / 2; kr.g.position.set(150, -150, 46); kr.g.visible = false; scene.add(kr.g);
+}
+function orangNode(name) { let f = null; if (!M.orang) return null; M.orang.traverse(o => { if (!f && (o.name === name)) f = o; }); return f; }
+const npcs = [];
+function prepOrang(g) {
+  g.scene.traverse(o => { if (!o.isMesh) return; const hasVC = !!(o.geometry && o.geometry.attributes && o.geometry.attributes.color); o.material = litMat(o.material, hasVC); });
+  M.orang = g.scene;
+}
+function putNpc(name, x, z, ry, tag) {
+  const src = orangNode(name); if (!src) return null;
+  const o = src.clone(true); o.position.set(x, FLOORY - 0.05, z); o.rotation.y = ry || 0; root.add(o);
+  const n = { o, x, z, y: o.position.y, tag: tag || name, ph: Math.random() * 6.28 }; npcs.push(n); return n;
+}
+function populate() {
+  let seed = 7; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const cols = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'], mcRow = 12;
+  const hero = { '11:1:1': 'Wanita_B', '13:1:0': 'Pria_B', '12:-1:1': 'Wanita_C', '12:-1:0': 'Pria_C', '10:-1:2': 'Pria_A' };
+  for (let k = 0; k < NROW; k++) for (const side of [1, -1]) for (let col = 0; col < 3; col++) {
+    if (k === mcRow && side === 1) { if (col === 2) continue; if (col === 1) { putNpc('Wanita_A', seatX(side, col), rowZ(k) + 0.3, 0, 'ibu'); continue; } if (col === 0) { putNpc('Pria_A', seatX(side, col), rowZ(k) + 0.3, 0, 'bapak'); continue; } }
+    const key = k + ':' + side + ':' + col;
+    if (hero[key]) { putNpc(hero[key], seatX(side, col), rowZ(k) + 0.3, 0); continue; }
+    if (rnd() > (Math.abs(k - mcRow) < 7 ? 0.75 : 0.45)) continue;
+    const near = Math.abs(k - mcRow) <= 3, v = cols[Math.floor(rnd() * 8)];
+    putNpc((near ? 'PS1_' : 'PS1L_') + v, seatX(side, col), rowZ(k) + 0.3, 0);
   }
-  mon.g.position.set(sideV * mon.dist, mon.y + Math.sin(t * 0.7) * 0.6, mon.z);
-  mon.g.lookAt(0, mon.y, mon.z + (mon.state === 'patrol' ? mon.dir * 3 : 0));
-  // mata menoleh ke kabin saat curiga
-  eyeG.rotation.y = lerp(eyeG.rotation.y || 0, mon.state === 'patrol' ? Math.sin(t * 0.6) * 0.5 : 0, Math.min(1, dt * 3));
-  mon.eyeGlow = G.alert;
-  // tentakel
-  for (let k = 0; k < NT; k++) {
-    const a = k / NT * 6.283 + 0.4, rx = Math.cos(a) * 3.4, ry = Math.sin(a) * 2.4, dx = Math.cos(a), dy = Math.sin(a);
-    for (let i = 0; i < NS; i++) {
-      const s = i / (NS - 1), len = s * TLEN, wob = Math.sin(t * 0.9 + i * 0.45 + k * 1.3), wob2 = Math.cos(t * 0.7 + i * 0.4 + k * 0.9);
-      const fwd = -1.5 + len * (0.35 + 1.1 * mon.reach * s) - (1 - mon.reach) * len * 0.5;
-      _d.position.set(rx + dx * len * 0.55 + wob * s * 1.7, ry + dy * len * 0.4 + wob2 * s * 1.3, fwd);
-      _d.scale.setScalar(0.95 * (1 - 0.86 * s) + 0.08);
-      _d.updateMatrix(); tent.setMatrixAt(k * NS + i, _d.matrix);
-    }
-  }
-  tent.instanceMatrix.needsUpdate = true;
 }
 
-/* ---------- kabin pesawat (model .glb) ---------- */
-const cabin = new THREE.Group(); scene.add(cabin);
-const modelState = { loaded: false, err: '' };
-function loadCabin(onDone) {
-  const ld = new GLTFLoader();
-  ld.load('pesawat_garuda.glb', gltf => {
-    try {
-      gltf.scene.traverse(o => {
-        if (!o.isMesh) return;
-        if (o.name === 'Exterior') { o.visible = false; return; }
-        if (o.name === 'Kaca') { o.material = new THREE.MeshBasicMaterial({ color: 0x0b1622, transparent: true, opacity: 0.38, depthWrite: false, side: THREE.DoubleSide, fog: false }); return; }
-        o.material = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
-        o.frustumCulled = false;
-      });
-      cabin.add(gltf.scene); modelState.loaded = true; onDone(true);
-    } catch (e) { modelState.err = 'gagal memasang pesawat: ' + e.message; showErr(modelState.err); onDone(false); }
-  }, xhr => {
-    if (xhr && xhr.total) { const p = Math.round(100 * xhr.loaded / xhr.total); el.ldFill.style.width = p + '%'; el.ldPct.textContent = p + '%'; }
-  }, err => { modelState.err = 'pesawat_garuda.glb tidak bisa dimuat (' + (err && err.message || 'tidak ditemukan') + '). Pastikan file ada di folder utama repo.'; showErr(modelState.err); onDone(false); });
-}
-
-/* ---------- lampu darurat lantai + tirai jendela + sekring + panel ---------- */
-const stripes = new THREE.InstancedMesh(new THREE.BoxGeometry(0.05, 0.02, 0.2), new THREE.MeshBasicMaterial({ color: 0xff3a26, fog: false }), 54);
-{ let n = 0; for (let z = -9.4; z < 14; z += 0.9) for (const sx of [-1, 1]) { if (n >= 54) break; _d.position.set(sx * 0.29, FLOOR + 0.02, z); _d.scale.setScalar(1); _d.updateMatrix(); stripes.setMatrixAt(n++, _d.matrix); } stripes.count = n; stripes.instanceMatrix.needsUpdate = true; scene.add(stripes); }
-const shadeMat = new THREE.MeshLambertMaterial({ color: 0xd8ccb2, side: THREE.DoubleSide });
-const shades = { 1: [], '-1': [] }, closed = { 1: [], '-1': [] };
-for (const sx of [1, -1]) for (let i = 0; i < NSEG; i++) {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.62, SEG - 0.06), shadeMat); m.position.set(sx * 1.79, 6.15, SEG0 + i * SEG); m.visible = false; scene.add(m); shades[sx].push(m); closed[sx].push(false);
-}
-const haloTex = mkCanvas(64, 64, (g, w, h) => { const r = g.createRadialGradient(w / 2, h / 2, 1, w / 2, h / 2, w / 2); r.addColorStop(0, 'rgba(120,255,160,1)'); r.addColorStop(0.35, 'rgba(60,220,110,.5)'); r.addColorStop(1, 'rgba(0,120,40,0)'); g.fillStyle = r; g.fillRect(0, 0, w, h); });
-function mkGlow(x, y, z, col) {
-  const g = new THREE.Group(); g.position.set(x, y, z);
-  const b = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.05, 0.08), new THREE.MeshBasicMaterial({ color: col, fog: false })); g.add(b);
-  const h = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), new THREE.MeshBasicMaterial({ map: haloTex, color: haloTex ? 0xffffff : col, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending })); h.position.y = 0.05; g.add(h);
-  scene.add(g); return { g, halo: h };
-}
-const FUSE_POS = [[0.5, FLOOR + 1.02, -4.2], [-0.5, FLOOR + 1.02, 3.6], [0.5, FLOOR + 1.02, 10.4]];
-const fuses = FUSE_POS.map(p => ({ x: p[0], y: p[1], z: p[2], taken: false, glow: mkGlow(p[0], p[1], p[2], 0x44ff88) }));
-const panel = mkGlow(0, FLOOR + 1.1, 13.9, 0xff4433);
-panel.g.scale.set(2.2, 2.2, 2.2);
-
-/* ---------- status permainan ---------- */
-const G = { state: 'load', hp: 3, nf: 0, powered: false, alert: 0, win: 0, blackout: 0, shake: 0, time: 0, over: false };
-const P = { x: 0, z: -9.3, yaw: 0, pitch: 0, eye: EYE, crouch: false, sprint: false, speed: 0, bob: 0, stepT: 0 };
-let SENS = 1, flashOn = true;
-try { SENS = parseFloat(localStorage.getItem('pw_sens')) || 1; } catch (e) { }
-
-function objText() {
-  if (G.powered) return 'Bantuan dipanggil lewat radio. Bertahan ' + Math.max(0, Math.ceil(G.win)) + ' detik lagi.';
-  if (G.nf < 3) return 'Cari 3 sekring hijau di kursi (' + G.nf + '/3). Matikan senter kalau mata di luar mendekat.';
-  return 'Bawa sekring ke panel merah di ujung lorong (dekat kokpit).';
-}
-function setHud() {
-  el.obj.textContent = objText(); el.obj.classList.add('on'); el.obj.style.display = 'block';
-  el.hp.innerHTML = 'Badan pesawat <b>' + '\u25AE'.repeat(G.hp) + '<span style="opacity:.25">' + '\u25AE'.repeat(3 - G.hp) + '</span></b>';
-}
-let toastT = 0;
-function toast(m, ms) { el.toast.textContent = m; el.toast.classList.add('on'); toastT = (ms || 3000) / 1000; }
-
-/* ---------- masukan ---------- */
-const mv = { x: 0, y: 0 }, keys = {};
-let joyId = null, joyO = { x: 0, y: 0 }, lookId = null, lookL = { x: 0, y: 0 };
-el.touch.addEventListener('pointerdown', e => {
-  e.preventDefault(); auInit();
-  if (G.state !== 'play') return;
-  if (e.clientX < window.innerWidth * 0.45 && joyId === null) {
-    joyId = e.pointerId; joyO = { x: e.clientX, y: e.clientY }; el.joy.style.left = (e.clientX - 55) + 'px'; el.joy.style.top = (e.clientY - 55) + 'px'; el.joy.classList.add('on');
-  } else if (lookId === null) { lookId = e.pointerId; lookL = { x: e.clientX, y: e.clientY }; }
-  try { el.touch.setPointerCapture(e.pointerId); } catch (err) { }
-});
+/* ---------- pengatur kamera ---------- */
+let lookId = null, lookL = { x: 0, y: 0 }, allowLook = false;
+el.touch.addEventListener('pointerdown', e => { e.preventDefault(); auInit(); if (!allowLook || lookId !== null) return; lookId = e.pointerId; lookL = { x: e.clientX, y: e.clientY }; try { el.touch.setPointerCapture(e.pointerId); } catch (er) { } });
 el.touch.addEventListener('pointermove', e => {
-  if (e.pointerId === joyId) {
-    let dx = e.clientX - joyO.x, dy = e.clientY - joyO.y; const l = Math.hypot(dx, dy), m = 46; if (l > m) { dx = dx / l * m; dy = dy / l * m; }
-    mv.x = dx / m; mv.y = -dy / m; const i = el.joy.firstElementChild; if (i) i.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
-  } else if (e.pointerId === lookId) {
-    const dx = e.clientX - lookL.x, dy = e.clientY - lookL.y; lookL = { x: e.clientX, y: e.clientY };
-    P.yaw -= dx * 0.0062 * SENS; P.pitch = clamp(P.pitch - dy * 0.0048 * SENS, -1.15, 1.15);
-  }
+  if (e.pointerId !== lookId || !allowLook || SEAT.guide) return;
+  const dx = e.clientX - lookL.x, dy = e.clientY - lookL.y; lookL = { x: e.clientX, y: e.clientY };
+  const ny = clamp(SEAT.yaw - dx * 0.0055, -1.9, 1.9), np = clamp(SEAT.pitch - dy * 0.0045, -0.7, 0.75);
+  SEAT.lookSum += Math.abs(ny - SEAT.yaw) + Math.abs(np - SEAT.pitch); SEAT.yaw = ny; SEAT.pitch = np;
 });
-function endPtr(e) {
-  if (e.pointerId === joyId) { joyId = null; mv.x = mv.y = 0; el.joy.classList.remove('on'); const i = el.joy.firstElementChild; if (i) i.style.transform = ''; }
-  if (e.pointerId === lookId) lookId = null;
-}
+function endPtr(e) { if (e.pointerId === lookId) lookId = null; }
 el.touch.addEventListener('pointerup', endPtr); el.touch.addEventListener('pointercancel', endPtr);
-window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; if (e.key.toLowerCase() === 'c') toggleCrouch(); if (e.key.toLowerCase() === 'f') toggleFlash(); if (e.key.toLowerCase() === 'e') doAct(); });
-window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
-let mouseDown = false;
-window.addEventListener('mousedown', e => { if (e.target === el.touch) mouseDown = true; });
-window.addEventListener('mouseup', () => { mouseDown = false; });
-window.addEventListener('mousemove', e => { if (mouseDown && G.state === 'play') { P.yaw -= (e.movementX || 0) * 0.004; P.pitch = clamp(P.pitch - (e.movementY || 0) * 0.003, -1.15, 1.15); } });
+window.addEventListener('mousemove', e => { if (e.buttons && allowLook && !SEAT.guide) { SEAT.yaw = clamp(SEAT.yaw - (e.movementX || 0) * 0.004, -1.9, 1.9); SEAT.pitch = clamp(SEAT.pitch - (e.movementY || 0) * 0.003, -0.7, 0.75); SEAT.lookSum += 0.01; } });
+function updateCamera(dt, t) {
+  let px, py, pz, lx, ly, lz;
+  if (CAM.mode === 'seat') {
+    if (SEAT.guide) { SEAT.yaw = lerp(SEAT.yaw, SEAT.yawT, Math.min(1, dt * 2.2)); SEAT.pitch = lerp(SEAT.pitch, SEAT.pitT, Math.min(1, dt * 2.2)); }
+    px = SEAT.x + CAM.leanX; py = SEAT.eye + CAM.leanY; pz = SEAT.z + CAM.leanZ;
+    const cp = Math.cos(SEAT.pitch), sp = Math.sin(SEAT.pitch), fx = Math.sin(SEAT.yaw) * cp, fz = Math.cos(SEAT.yaw) * cp;
+    py += Math.sin(t * 0.7) * 0.004; lx = px + fx; ly = py + sp; lz = pz + fz;
+  } else { px = CAM.px; py = CAM.py; pz = CAM.pz; lx = CAM.lx; ly = CAM.ly; lz = CAM.lz; }
+  let sx = 0, sy = 0, sz = 0;
+  const amp = shakeAmp + G.turb * 0.05;
+  if (amp > 0.0005) { sx = (Math.random() - 0.5) * amp; sy = (Math.random() - 0.5) * amp * 0.8; sz = (Math.random() - 0.5) * amp * 0.6; shakeAmp = Math.max(0, shakeAmp - dt * 0.6); }
+  camera.position.set(px + sx, py + sy, pz + sz); camera.up.set(Math.sin(roll) * 0.6, 1, 0); camera.lookAt(lx + sx * 0.5, ly + sy * 0.5, lz + sz * 0.5);
+  if (Math.abs(camera.fov - CAM.fov) > 0.02) { camera.fov = CAM.fov; camera.updateProjectionMatrix(); }
+}
+function cine(pos, look, dur) { return tween(CAM, { px: pos[0], py: pos[1], pz: pos[2], lx: look[0], ly: look[1], lz: look[2] }, dur); }
+function setCine(pos, look) { CAM.mode = 'cine'; CAM.px = pos[0]; CAM.py = pos[1]; CAM.pz = pos[2]; CAM.lx = look[0]; CAM.ly = look[1]; CAM.lz = look[2]; }
 
-function toggleCrouch() { if (G.state !== 'play') return; P.crouch = !P.crouch; el.crouch.classList.toggle('on', P.crouch); sfx.click(); }
-function toggleFlash() { if (G.state !== 'play') return; flashOn = !flashOn; el.flash.classList.toggle('on', flashOn); sfx.click(); }
-el.crouch.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); auInit(); toggleCrouch(); });
-el.flash.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); auInit(); toggleFlash(); });
-el.sprint.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); auInit(); P.sprint = true; });
-['pointerup', 'pointerleave', 'pointercancel'].forEach(t => el.sprint.addEventListener(t, () => { P.sprint = false; }));
-el.act.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); auInit(); doAct(); });
+/* ---------- antarmuka cerita ---------- */
+function hint(t) { if (!t) { el.hint.classList.remove('on'); return; } el.hint.textContent = t; el.hint.classList.add('on'); }
+async function say(who, text, o) {
+  o = o || {}; const w = el.sub.querySelector('.who'), x = el.sub.querySelector('.txt');
+  w.textContent = who || ''; w.style.display = who ? 'block' : 'none'; x.className = 'txt' + (o.thought ? ' th' : ''); x.textContent = ''; el.sub.classList.add('on');
+  for (let i = 1; i <= text.length; i++) { x.textContent = text.slice(0, i); if (i % 3 === 0 && o.voice) sfx.blip(); await wait(0.028); }
+  await wait(o.hold !== undefined ? o.hold : Math.max(1.3, text.length * 0.035));
+  if (!o.keep) el.sub.classList.remove('on');
+}
+const think = (t, o) => say('', t, Object.assign({ thought: true }, o));
+async function pa(text) {
+  const x = el.pa.querySelector('.pax'); x.textContent = ''; el.pa.classList.add('on'); sfx.chime(); await wait(1.3); sfx.static(0.25);
+  for (let i = 1; i <= text.length; i++) { x.textContent = text.slice(0, i); if (i % 2 === 0) sfx.blip(); await wait(0.03); }
+  await wait(Math.max(1.6, text.length * 0.03)); el.pa.classList.remove('on');
+}
+function card(t, s, ms) { el.card.querySelector('.ct').textContent = t; el.card.querySelector('.cs').textContent = s || ''; el.card.classList.add('on'); return wait(ms / 1000).then(() => el.card.classList.remove('on')); }
+function fade(o, s) { el.fade.style.transition = 'opacity ' + s + 's'; el.fade.style.opacity = String(o); return wait(s); }
+function eyes(o, s) { el.blur.style.transition = 'opacity ' + s + 's'; el.blur.style.opacity = String(o); return wait(s); }
+function bolt(k) { G.flash = k === undefined ? 1 : k; sfx.crack(); sfx.thunder(0.5 + Math.random() * 0.6); }
+function flickerLights(s) { flickerT = s; }
+
+/* ---------- cerita ---------- */
+async function story() {
+  G.started = true; G.turb = 0; G.cabin = 1; kr.g.visible = false; kr.rise = 0;
+  hint(''); el.sub.classList.remove('on'); el.pa.classList.remove('on');
+  /* 1. pembuka: pesawat dari luar */
+  if (M.luar) M.luar.visible = true;
+  setCine([70, 13, 62], [0, 7.5, 2]); await fade(0, 1.6);
+  cine([44, 10, -34], [0, 7, 2], 10);
+  await wait(1.2);
+  await say('', 'Tiga hari di Padang. Pemakaman Nenek, tangis Ibu, dan bau hujan di kampung.', { thought: true });
+  await say('', 'Sekarang aku hanya ingin pulang.', { thought: true });
+  await card('PENERBANGAN PULANG', 'Padang \u2192 Jakarta \u00b7 Pukul 21.47', 3600);
+  /* 2. di dalam kabin: MC tertidur */
+  await fade(1, 0.9); if (M.luar) M.luar.visible = false;
+  const mc = putNpc('MC_tidur', SEAT.x, rowZ(12) + 0.3, 0, 'mc');
+  setCine([0.06, 6.42, 2.5], [1.32, 6.05, 1.25]); CAM.fov = 60; await fade(0, 1.2);
+  cine([0.35, 6.4, 2.05], [1.4, 6.0, 1.25], 6);
+  await wait(2.4);
+  G.turb = 0.35; sfx.rattle(); await wait(1.0); G.turb = 0; shakeAmp = 0.05;
+  await fade(1, 0.6);
+  if (mc) { root.remove(mc.o); const i = npcs.indexOf(mc); if (i >= 0) npcs.splice(i, 1); }
+  CAM.mode = 'seat'; CAM.fov = 72; SEAT.yaw = 0; SEAT.pitch = 0; SEAT.guide = false; SEAT.lookSum = 0;
+  await eyes(1, 0.01); await fade(0, 0.05);
+  await eyes(0.75, 1.2); await eyes(0.2, 0.7); await eyes(0.55, 0.5); await eyes(0, 1.1);
+  await think('Uh... aku ketiduran.');
+  allowLook = true;
+  hint('Geser jari di layar untuk melihat sekeliling'); const t0 = SEAT.lookSum;
+  for (let i = 0; i < 60 && SEAT.lookSum - t0 < 3.2; i++) await wait(0.25);
+  hint('');
+  await think('Kabin remang dan hangat. Ada yang membaca, ada yang tidur, ada yang menonton film di ponselnya.');
+  await say('Ibu di sebelah', 'Sudah bangun, Nak? Tadi sempat goyang sedikit.', { voice: true });
+  await say('Aku', 'Sudah jam berapa, Bu?', { voice: true });
+  await say('Ibu di sebelah', 'Baru setengah sepuluh. Katanya sebentar lagi kita masuk awan badai.', { voice: true });
+  await think('Awan badai... di ketinggian ini?');
+  /* 3. kapten */
+  await pa('Selamat malam, Bapak dan Ibu penumpang. Di sini kapten kalian berbicara.');
+  await pa('Di depan kita ada sel badai yang cukup besar. Kami akan berusaha melewatinya secepat mungkin.');
+  await pa('Mohon semua penumpang tetap duduk, kencangkan sabuk pengaman, dan tetap tenang.');
+  if (AU.murmur) AU.murmur.gain.value = 0.11;
+  sfx.click(); await think('Klik. Sabuk pengaman terpasang.');
+  await say('Ibu di sebelah', 'Aduh, semoga tidak lama...', { voice: true });
+  /* 4. guncangan */
+  G.turb = 0.5; sfx.rattle(); if (AU.rumble) AU.rumble.gain.value = 0.25; flickerLights(2.5);
+  await wait(2.2); bolt(0.6); await wait(1.4);
+  await say('Penumpang di belakang', 'Ini bukan turbulensi biasa!', { voice: true, hold: 0.6 });
+  G.turb = 0.9; if (AU.rumble) AU.rumble.gain.value = 0.5; bolt(1); for (let i = 0; i < 4; i++) sfx.scream(0.7);
+  await wait(1.6);
+  await pa('Bapak Ibu... kami mengalami turbulensi... harap semua... kembali ke...');
+  sfx.static(1.2); G.turb = 1.4; shakeAmp = 0.12; if (AU.rumble) AU.rumble.gain.value = 0.85;
+  for (let i = 0; i < 7; i++) sfx.scream(1);
+  bolt(1); flickerLights(3); roll = 0.05;
+  await wait(2.4); bolt(1);
+  await say('Ibu di sebelah', 'Ya Allah! Lihat! Di luar jendela!', { voice: true, hold: 0.5 });
+  /* 5. melihat ke jendela */
+  SEAT.guide = true; SEAT.yawT = 1.5; SEAT.pitT = -0.13;
+  tween(CAM, { leanX: 0.2, leanY: -0.13, leanZ: -0.14 }, 1.6); CAM.fov = 66;
+  await wait(1.2);
+  kr.g.visible = true; await tween(kr, { rise: 1 }, 5.0);
+  await say('', 'Di balik awan hitam itu... ada sesuatu.', { thought: true, hold: 0.8 });
+  bolt(1); await wait(0.4);
+  kr.flashT = 1; await wait(0.9);
+  await say('Ibu di sebelah', 'Itu... itu apa...?', { voice: true, hold: 0.7 });
+  bolt(1); for (let i = 0; i < 6; i++) sfx.scream(1.1);
+  await say('Penumpang di belakang', 'MONSTER! ITU MONSTER!', { voice: true, hold: 0.5 });
+  await think('Itu bukan awan. Itu... hidup.', { hold: 1.0 });
+  await pa('Semua kru... ke posisi... Ya Tuhan... jangan... jangan lihat...');
+  /* 6. hantaman */
+  G.turb = 2; shakeAmp = 0.4; sfx.slam(); bolt(1); flickerLights(1.5);
+  await wait(0.7); sfx.slam(); G.blackout = 3; shakeAmp = 0.7; sfx.scream(1.3);
+  await wait(1.0); await fade(1, 0.35);
+  G.turb = 0; shakeAmp = 0; hint('');
+  await wait(1.6);
+  await card('BAB 1 SELESAI', 'Bersambung ke Bab 2...', 4200);
+  endStory();
+}
+
+/* ---------- layar ---------- */
+function showPanel(html) { el.panel.innerHTML = html; el.panel.classList.add('on'); }
+function hidePanel() { el.panel.classList.remove('on'); }
+function showTitle() {
+  G.state = 'title'; allowLook = false; hint(''); el.sub.classList.remove('on'); el.pa.classList.remove('on');
+  showPanel('<div class="board"><h1>Penerbangan Malam</h1><h2>Bab 1: Penerbangan Pulang</h2><p>Kamu pulang dari Sumatra dengan pesawat malam. Semua tampak biasa... sampai langit di luar jendela berubah. Putar HP ke mendatar dan pakai earphone.</p><button class="cta" data-do="start">Mulai</button><button class="cta alt" data-do="bright">Kecerahan: ' + BRN[brI] + '</button></div>');
+}
+function endStory() { G.state = 'end'; showPanel('<div class="board"><h1>Bersambung</h1><h2>Bab 1 selesai</h2><p>Bab 2 akan dimulai dengan kamu terbangun di kabin yang gelap. Kabari aku bagian mana yang ingin diperbaiki dulu.</p><button class="cta" data-do="start">Ulangi Bab 1</button><button class="cta alt" data-do="menu">Ke menu</button></div>'); }
+function resetStory() {
+  TW = []; TIM = []; G.turb = 0; G.flash = 0; G.blackout = 0; shakeAmp = 0; roll = 0; flickerT = 0; CAM.leanX = CAM.leanY = CAM.leanZ = 0; SEAT.guide = false; allowLook = false;
+  kr.g.visible = false; kr.rise = 0; el.blur.style.opacity = '0'; el.card.classList.remove('on'); hint(''); el.sub.classList.remove('on'); el.pa.classList.remove('on');
+  for (let i = npcs.length - 1; i >= 0; i--) if (npcs[i].tag === 'mc') { root.remove(npcs[i].o); npcs.splice(i, 1); }
+  if (M.luar) M.luar.visible = false;
+  if (AU.rumble) AU.rumble.gain.value = 0; if (AU.murmur) AU.murmur.gain.value = 0.05;
+}
+function startStory() {
+  if (!M.cabin) { showErr('Model kabin belum termuat.'); return; }
+  hidePanel(); resetStory(); G.state = 'play'; fade(1, 0.01); story().catch(e => showErr('cerita: ' + (e && e.message || e)));
+}
+function pauseGame() { if (G.state !== 'play') return; G.state = 'pause'; showPanel('<div class="board"><h1>Dijeda</h1><button class="cta" data-do="resume">Lanjut</button><button class="cta alt" data-do="bright">Kecerahan: ' + BRN[brI] + '</button><button class="cta alt" data-do="menu">Ke menu</button></div>'); }
+el.panel.addEventListener('click', e => {
+  const b = e.target.closest && e.target.closest('[data-do]'); if (!b) return; auInit();
+  const a = b.dataset.do;
+  if (a === 'start') startStory(); else if (a === 'menu') { resetStory(); setCine([0.4, 6.5, -6], [0.8, 6, 6]); fade(0, 0.6); showTitle(); }
+  else if (a === 'resume') { hidePanel(); G.state = 'play'; }
+  else if (a === 'bright') { cycleBright(); if (G.state === 'pause') { G.state = 'play'; pauseGame(); } else showTitle(); }
+});
 el.mute.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); AU.on = !AU.on; el.mute.textContent = AU.on ? '\u{1F50A}' : '\u{1F507}'; if (AU.master) AU.master.gain.value = AU.on ? 0.9 : 0; });
 el.pause.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); pauseGame(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); });
 
-/* ---------- aksi kontekstual ---------- */
-let act = null;      // { label, run }
-function sideFacing() { const s = Math.sin(P.yaw); return s > 0.5 ? 1 : (s < -0.5 ? -1 : 0); }   // +x = sisi kiri saat menghadap kokpit
-function findAct() {
-  for (const f of fuses) if (!f.taken && Math.hypot(f.x - P.x, f.z - P.z) < 1.6) return { label: 'Ambil sekring', run() { f.taken = true; f.glow.g.visible = false; G.nf++; sfx.chime(); toast(G.nf < 3 ? 'Sekring ' + G.nf + '/3 didapat' : 'Semua sekring didapat. Ke panel merah di depan.'); setHud(); } };
-  if (G.nf >= 3 && !G.powered && Math.hypot(0 - P.x, 13.9 - P.z) < 2.2) return { label: 'Pasang sekring', run() { powerOn(); } };
-  const sf = sideFacing();
-  if (sf !== 0) {
-    const i0 = clamp(Math.round((P.z - SEG0) / SEG), 0, NSEG - 1), idx = [i0 - 1, i0, i0 + 1].filter(i => i >= 0 && i < NSEG && !closed[sf][i]);
-    if (idx.length) return { label: 'Tutup tirai ' + (sf === 1 ? 'kiri' : 'kanan'), run() { idx.forEach(i => { closed[sf][i] = true; shades[sf][i].visible = true; }); sfx.click(); nburst(0.12, 0.08, 1400); } };
-  }
-  return null;
-}
-function doAct() { if (G.state !== 'play') return; if (act) { act.run(); act = null; } }
-
-function powerOn() {
-  G.powered = true; G.win = 30; sfx.power(); hemi.intensity = 0.8; scene.fog.density = 0.028; toast('Listrik pulih. Radio mengirim sinyal darurat!', 4000);
-  panel.g.children[0].material.color.setHex(0x44ff88); mon.cool = 0.5; setHud();
-}
-
-/* ---------- serangan monster & kewaspadaan ---------- */
-function openFrac(side, z) {
-  let tot = 0, op = 0;
-  for (let i = 0; i < NSEG; i++) { const zc = SEG0 + i * SEG; if (Math.abs(zc - z) < 3.1) { tot++; if (!closed[side][i]) op++; } }
-  return tot ? op / tot : 0;
-}
-function monsterHit() {
-  const of = openFrac(mon.side, P.z);
-  if (of < 0.4 && !flashOn) { toast('Monster mencakar tirai... lalu menjauh.', 2500); sfx.slam(); G.shake = 0.5; return; }
-  G.hp--; G.shake = 1.6; G.blackout = 3.2; sfx.slam(); sfx.crack(); setHud();
-  toast(G.hp > 0 ? 'Badan pesawat retak! Sisa ' + G.hp : 'Badan pesawat hancur...', 2600);
-  if (G.hp <= 0) endGame(false);
-}
-function updateAlert(dt) {
-  if (mon.state !== 'patrol') { G.alert = Math.max(G.alert, 0.35); return; }
-  const near = Math.abs(mon.z - P.z) < 10;
-  const noise = (P.speed < 0.2) ? 0 : (P.sprint ? 0.5 : (P.crouch ? 0.05 : 0.18));
-  const ex = openFrac(mon.side, P.z) * (0.22 + (flashOn ? 0.65 : 0) + noise);
-  if (near && ex > 0.14 && mon.cool <= 0) G.alert += ex * (G.powered ? 1.5 : 0.75) * dt;
-  else G.alert = Math.max(0, G.alert - 0.3 * dt);
-  if (G.alert >= 1) { G.alert = 0.4; mon.state = 'approach'; mon.phase = 0; sfx.growl(); toast('Ia melihatmu! Tutup tirai atau matikan senter!', 2200); }
-}
-
-/* ---------- alur permainan ---------- */
-function showPanel(html) { el.panel.innerHTML = html; el.panel.classList.add('on'); }
-function hidePanel() { el.panel.classList.remove('on'); }
-function fadeTo(o, s) { el.fade.style.transition = 'opacity ' + (s || 1) + 's'; el.fade.style.opacity = String(o); }
-function showTitle() {
-  G.state = 'title'; act = null; el.act.classList.remove('on'); el.obj.style.display = 'none';
-  showPanel('<div class="board"><h1>Penerbangan Malam</h1><h2>Horor di dalam pesawat</h2><p>Semua penumpang menghilang. Sesuatu yang sangat besar mengitari pesawat di luar, dan ia tertarik pada cahaya dan suara. Putar HP ke mendatar dan pakai earphone.</p><button class="cta" data-do="start">Mulai</button><button class="cta alt" data-do="how">Cara bermain</button><button class="cta alt" data-do="bright">Kecerahan: ' + BRN[brI] + '</button></div>');
-}
-function showHow() {
-  showPanel('<div class="board"><h1>Cara bermain</h1><ul><li><b>Jalan:</b> geser jari di sisi kiri layar. <b>Lihat sekeliling:</b> geser di sisi kanan.</li><li><b>Senter dan suara menarik mata di luar.</b> Kalau ia mendekat: matikan senter (tombol senter), jongkok (tombol jongkok), dan berjalan pelan.</li><li><b>Tutup tirai:</b> hadapkan pandangan ke jendela lalu tekan tombol emas. Tirai yang tertutup membuatmu tak terlihat.</li><li>Cari 3 sekring hijau, pasang di panel merah di ujung lorong, lalu bertahan sampai bantuan datang.</li><li>Berlari memang cepat, tapi sangat berisik.</li></ul><button class="cta" data-do="start">Mulai</button><button class="cta alt" data-do="menu">Kembali</button></div>');
-}
-function resetGame() {
-  G.hp = 3; G.nf = 0; G.powered = false; G.alert = 0; G.win = 0; G.blackout = 0; G.shake = 0; G.time = 0; G.over = false;
-  P.x = 0; P.z = -9.3; P.yaw = 0; P.pitch = 0; P.crouch = false; P.sprint = false; el.crouch.classList.remove('on'); flashOn = true; el.flash.classList.add('on');
-  hemi.intensity = 0.34; scene.fog.density = 0.045;
-  fuses.forEach(f => { f.taken = false; f.glow.g.visible = true; });
-  panel.g.children[0].material.color.setHex(0xff4433);
-  for (const sx of [1, -1]) for (let i = 0; i < NSEG; i++) { closed[sx][i] = false; shades[sx][i].visible = false; }
-  mon.state = 'patrol'; mon.side = 1; mon.z = -34; mon.dir = 1; mon.dist = 16; mon.cool = 8; mon.reach = 0; mon.phase = 0;
-}
-function startGame() {
-  if (!modelState.loaded) { showErr(modelState.err || 'Pesawat belum termuat.'); return; }
-  hidePanel(); resetGame(); G.state = 'play'; setHud(); fadeTo(0, 1.6);
-  toast('Kabin sunyi. Cari 3 sekring hijau. Jangan berisik.', 4200);
-}
-function endGame(win) {
-  if (G.over) return; G.over = true; G.state = 'end'; act = null; el.act.classList.remove('on'); joyId = lookId = null; mv.x = mv.y = 0; el.joy.classList.remove('on');
-  setTimeout(() => {
-    if (win) showPanel('<div class="board"><h1>Selamat!</h1><h2>Bantuan datang</h2><p>Dua jet tempur muncul di kedua sisi pesawat. Di luar, sesuatu yang sangat besar tenggelam kembali ke dalam awan. Kamu selamat malam ini.</p><button class="cta" data-do="start">Main lagi</button><button class="cta alt" data-do="menu">Ke menu</button></div>');
-    else showPanel('<div class="board"><h1>Pesawat jatuh</h1><h2>Kamu tidak selamat</h2><p>Coba lagi: tutup tirai lebih awal, matikan senter saat mata di luar mendekat, dan jangan berlari.</p><button class="cta" data-do="start">Coba lagi</button><button class="cta alt" data-do="menu">Ke menu</button></div>');
-  }, win ? 1200 : 2200);
-}
-function pauseGame() { if (G.state !== 'play') return; G.state = 'pause'; joyId = lookId = null; mv.x = mv.y = 0; el.joy.classList.remove('on'); P.sprint = false; showPanel('<div class="board"><h1>Dijeda</h1><p>Sesuatu masih mengintai di luar.</p><button class="cta" data-do="resume">Lanjut</button><button class="cta alt" data-do="bright">Kecerahan: ' + BRN[brI] + '</button><button class="cta alt" data-do="menu">Ke menu</button></div>'); }
-el.panel.addEventListener('click', e => {
-  const b = e.target.closest && e.target.closest('[data-do]'); if (!b) return; auInit();
-  const a = b.dataset.do;
-  if (a === 'start') startGame(); else if (a === 'how') showHow(); else if (a === 'menu') showTitle();
-  else if (a === 'resume') { hidePanel(); G.state = 'play'; }
-  else if (a === 'bright') { cycleBright(); if (G.state === 'pause') { G.state = 'play'; pauseGame(); } else showTitle(); }
-});
-
 /* ---------- pembaruan tiap bingkai ---------- */
-function updatePlayer(dt) {
-  const f = [Math.sin(P.yaw), Math.cos(P.yaw)], r = [-Math.cos(P.yaw), Math.sin(P.yaw)];
-  let ax = mv.x + (keys.d ? 1 : 0) - (keys.a ? 1 : 0), ay = mv.y + (keys.w ? 1 : 0) - (keys.s ? 1 : 0);
-  const l = Math.hypot(ax, ay); if (l > 1) { ax /= l; ay /= l; }
-  const sp = P.crouch ? 0.85 : (P.sprint ? 3.5 : 1.75);
-  const vx = (f[0] * ay + r[0] * ax) * sp, vz = (f[1] * ay + r[1] * ax) * sp;
-  const nx = clamp(P.x + vx * dt, -AISLE, AISLE), nz = clamp(P.z + vz * dt, Z0, Z1);
-  P.speed = Math.hypot(nx - P.x, nz - P.z) / Math.max(dt, 1e-4);
-  P.x = nx; P.z = nz;
-  P.eye = lerp(P.eye, P.crouch ? EYE_CR : EYE, Math.min(1, dt * 7));
-  if (P.speed > 0.3) {
-    P.bob += dt * P.speed * 3.4; P.stepT -= dt * (P.speed / 1.75);
-    if (P.stepT <= 0) { P.stepT = 0.56; sfx.step(P.crouch ? 0.35 : (P.sprint ? 1.6 : 0.8)); }
-  }
-}
-function updateCamera(dt) {
-  const bob = Math.sin(P.bob) * 0.024 * (P.crouch ? 0.5 : 1) * clamp(P.speed / 1.75, 0, 1.6);
-  let sx = 0, sy = 0;
-  if (G.shake > 0) { const q = Math.min(G.shake, 1); sx = (Math.random() - 0.5) * 0.06 * q; sy = (Math.random() - 0.5) * 0.05 * q; G.shake = Math.max(0, G.shake - dt * 1.2); }
-  const y = FLOOR + P.eye + bob;
-  camera.position.set(P.x + sx, y + sy, P.z);
-  const cp = Math.cos(P.pitch), sp = Math.sin(P.pitch), fx = Math.sin(P.yaw) * cp, fz = Math.cos(P.yaw) * cp;
-  camera.lookAt(P.x + fx, y + sp, P.z + fz);
-  // senter di tangan kanan, searah pandangan
-  const rx = -Math.cos(P.yaw) * 0.16, rz = Math.sin(P.yaw) * 0.16;
-  flash.position.set(P.x + rx, y - 0.14, P.z + rz); flash.target.position.set(P.x + fx * 9, y + sp * 9, P.z + fz * 9);
-  moon.lookAt(camera.position.x, camera.position.y, camera.position.z);
-  if (cloudTex && cloudTex.offset) cloudTex.offset.y += dt * 0.012;
-}
-let flickT = 0;
-function updateLights(dt, t) {
-  let k = 1;
-  if (G.blackout > 0) { G.blackout -= dt; k = (Math.sin(t * 47) > 0.3 && G.blackout < 1.4) ? 0.7 : 0.0; }
-  else if (G.alert > 0.5) k = 0.8 + 0.2 * Math.sin(t * 31);
-  flash.intensity = flashOn ? 3.2 * k : 0;
-  const zs = []; for (let z = -9.0; z < 14; z += 1.8) zs.push(z);
-  zs.sort((a, b) => Math.abs(a - P.z) - Math.abs(b - P.z));
-  for (let i = 0; i < 3; i++) { emer[i].position.set((i % 2 ? -1 : 1) * 0.3, FLOOR + 0.35, zs[i]); emer[i].intensity = 1.1 * (G.blackout > 0 ? 0 : 1); }
-}
-function updateActBtn() {
-  act = G.state === 'play' ? findAct() : null;
-  if (act) { el.act.textContent = act.label; el.act.classList.add('on'); } else el.act.classList.remove('on');
-}
 let lastT = performance.now(), fpsAcc = 0, fpsN = 0;
+function updateWorld(dt, t) {
+  G.flash = Math.max(0, G.flash - dt * 2.6);
+  scene.background.copy(SKY).lerp(SKYFLASH, G.flash * 0.7);
+  flashL.intensity = G.flash * 900;
+  kr.mats.forEach(m => { const f = 1 + kr.flashT * 2.4 + G.flash * 1.4; m.color.setRGB(f, f, f); });
+  if (kr.flashT) kr.flashT = Math.max(0, kr.flashT - dt * 0.5);
+  let cab = G.cabin;
+  if (flickerT > 0) { flickerT -= dt; cab *= (Math.sin(t * 43) > 0.1 ? 1 : 0.05); }
+  if (G.blackout > 0) { G.blackout -= dt; cab = 0; }
+  const li = 0.15 + 0.85 * cab;
+  ambient.intensity = 1.5 * li; hemi.intensity = 1.3 * li; cabinL.forEach((l, i) => { l.intensity = 6 * cab; l.position.set(0.3 - i * 0.6, 6.8, SEAT.z + (i ? 2.2 : -1.5)); });
+  lampMats.forEach(m => m.color.setRGB(cab, cab * 0.95, cab * 0.85));
+  if (cloudTex && cloudTex.offset) { cloudTex.offset.y += dt * 0.018; cloudTex.offset.x += dt * 0.004; }
+  root.rotation.z = Math.sin(t * 1.3) * 0.004 * (1 + G.turb * 6) + (G.turb > 1 ? Math.sin(t * 9) * 0.01 * G.turb : 0);
+  root.position.y = Math.sin(t * 2.1) * 0.02 * G.turb;
+  if (G.turb > 0.2) for (const n of npcs) { n.o.position.y = n.y + Math.sin(t * 14 + n.ph) * 0.012 * G.turb; n.o.rotation.z = Math.sin(t * 9 + n.ph) * 0.03 * G.turb; n.o.position.x = n.x + Math.sin(t * 11 + n.ph * 2) * 0.012 * G.turb; }
+  if (kr.rise > 0.005) { kr.g.visible = true; const y = lerp(-150, -95, ease(clamp(kr.rise, 0, 1))); kr.g.position.set(150 + Math.sin(t * 0.3) * 4, y + Math.sin(t * 0.6) * 1.5, 46); kr.g.rotation.y = -Math.PI / 2 + Math.sin(t * 0.25) * 0.12; } else kr.g.visible = false;
+  puffs.forEach((p, i) => { p.material.opacity = 0.5 + 0.12 * Math.sin(t * 0.4 + i); });
+  for (const ci in seatChunks) { const c = seatChunks[ci], near = Math.abs(c.zc - camera.position.z) < 3.6; c.H.forEach(o => { o.visible = near; }); c.L.forEach(o => { o.visible = !near; }); }
+  el.redfx.style.opacity = String(clamp(G.turb * 0.1 + (G.blackout > 0 ? 0.2 : 0), 0, 0.6));
+}
 function loop(now) {
   requestAnimationFrame(loop);
   const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now; const t = now / 1000;
-  if (toastT > 0) { toastT -= dt; if (toastT <= 0) el.toast.classList.remove('on'); }
-  if (G.state === 'play') {
-    G.time += dt;
-    updatePlayer(dt); updateAlert(dt); updateLights(dt, t); updateActBtn();
-    if (G.powered && !G.over) { G.win -= dt; el.obj.textContent = objText(); if (G.win <= 0) endGame(true); }
-    if (G.alert > 0.45) { AU.heartT -= dt; if (AU.heartT <= 0) { AU.heartT = 1.15 - G.alert * 0.65; sfx.heart(G.alert); } }
-    if (mon.state === 'patrol' && Math.abs(mon.z - P.z) < 6 && Math.abs(Math.sin(t * 0.13)) > 0.999) sfx.growl();
-  } else if (G.state !== 'pause') { act = null; }
-  if (G.state === 'play' || G.state === 'title' || G.state === 'end') updateMonster(dt, t);
-  updateCamera(dt);
-  el.alertFill.style.width = Math.round(clamp(G.alert, 0, 1) * 100) + '%';
-  el.redfx.style.opacity = String(clamp(G.alert * 0.9 + (G.blackout > 0 ? 0.3 : 0), 0, 0.95));
+  if (G.state === 'play') stepTweens(dt);
+  if (G.state === 'play' || G.state === 'end' || G.state === 'title') updateWorld(dt, t);
+  updateCamera(dt, t);
   renderer.render(scene, camera);
-  // penyesuaian kualitas otomatis
   fpsAcc += dt; fpsN++;
   if (fpsAcc > 2.5) { const fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; if (fps < 24 && QUAL.pr > 0.7) { QUAL.pr = Math.max(0.7, QUAL.pr - 0.15); resize(); } }
 }
 
 /* ---------- mulai ---------- */
-setHud(); el.obj.style.display = 'none';
-window.addEventListener('load', () => { });
-loadCabin(ok => {
-  el.loading.style.display = 'none';
-  camera.position.set(0, FLOOR + EYE, -9.3); camera.lookAt(0, FLOOR + EYE, 0);
-  fadeTo(0, 1.2); showTitle(); if (!ok) toast('Model pesawat gagal dimuat', 6000);
-});
+setCine([0.4, 6.5, -6], [0.8, 6, 6]);
+(async () => {
+  try {
+    const gc = await loadGLB('kabin2_garuda.glb', 0, 55); setupCabin(gc);
+    const go = await loadGLB('orang.glb', 55, 68); prepOrang(go); populate();
+    try { const gk = await loadGLB('kraken.glb', 68, 82); setupKraken(gk); } catch (e) { showErr(e.message); }
+    try { const gl = await loadGLB('pesawat_luar.glb', 82, 100); setupLuar(gl); } catch (e) { showErr(e.message); }
+    el.loading.style.display = 'none'; fade(0, 1.0); showTitle();
+  } catch (e) { el.loading.style.display = 'none'; showErr(e.message); showTitle(); }
+})();
 requestAnimationFrame(loop);
-if (window.__DEBUG) window.__dbg = { G, P, mon, closed, fuses, get flashOn() { return flashOn; }, set flashOn(v) { flashOn = v; }, keys, mv, act: () => act, doAct, startGame, showTitle, camera, scene, modelState, sfx };
+if (window.__DEBUG) window.__dbg = { G, CAM, SEAT, kr, npcs, seatChunks, M, story, startStory, get shake() { return shakeAmp; }, camera, scene, sfx, TIMn: () => TIM.length };

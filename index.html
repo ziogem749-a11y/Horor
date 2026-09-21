@@ -74,25 +74,35 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
 #loading{position:fixed;inset:0;z-index:50;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:var(--bone);font-family:Georgia,serif}
 #loading .ld{width:min(70%,320px);height:6px;border-radius:3px;background:rgba(255,255,255,.15);overflow:hidden}
 #loading .ld i{display:block;height:100%;width:0;background:var(--amber)}
+
+#sub{position:absolute;left:50%;bottom:calc(14px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);width:min(90%,760px);display:none;background:rgba(6,9,12,.78);border-radius:12px;padding:10px 16px 14px;border:1px solid rgba(230,234,219,.25)}
+#sub.on{display:block}
+#sub .who{font-family:Georgia,serif;font-weight:700;font-size:14px;color:var(--amber);margin-bottom:2px}
+#sub .txt{font-family:Georgia,serif;font-size:18px;line-height:1.4;min-height:1.4em}
+#sub .txt.th{font-style:italic;color:#cfd8c8}
+#pa{position:absolute;left:50%;top:calc(58px + env(safe-area-inset-top,0px));transform:translateX(-50%);width:min(88%,700px);display:none;background:rgba(10,20,30,.85);border:2px solid #7fb5e6;border-radius:12px;padding:10px 16px}
+#pa.on{display:block}
+#pa .pat{font-size:11px;letter-spacing:.18em;color:#7fb5e6;margin-bottom:4px}
+#pa .pax{font-family:Georgia,serif;font-size:17px;line-height:1.4}
+#hint{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:10px 18px;border-radius:12px;background:rgba(6,9,12,.7);border:1px solid rgba(230,234,219,.3);font-size:15px;opacity:0;transition:opacity .6s;pointer-events:none;text-align:center;max-width:70%}
+#hint.on{opacity:1}
+#blur{position:fixed;inset:0;z-index:3;pointer-events:none;background:#000;opacity:0}
 </style>
 </head>
 <body>
 <canvas id="gl"></canvas>
 <div id="vig"></div>
 <div id="redfx"></div>
+<div id="blur"></div>
 <div id="app">
   <div id="touch"></div>
-  <div id="joy"><i></i></div>
   <div id="obj"></div>
-  <div id="alertWrap"><div>MATA DI LUAR</div><div class="bar"><i id="alertFill"></i></div></div>
-  <div id="hp"></div>
   <div id="toast"></div>
   <button class="hud" id="muteBtn">&#128266;</button>
   <button class="hud" id="pauseBtn">&#9208;</button>
-  <button class="rbtn" id="btnSprint">&#127939;</button>
-  <button class="rbtn" id="btnCrouch">&#129486;</button>
-  <button class="rbtn on" id="btnFlash">&#128294;</button>
-  <button id="actBtn"></button>
+  <div id="sub"><div class="who"></div><div class="txt"></div></div>
+  <div id="pa"><div class="pat">PENGUMUMAN KABIN</div><div class="pax"></div></div>
+  <div id="hint"></div>
 </div>
 <div id="fade"></div>
 <div id="card"><div class="ct"></div><div class="cs"></div></div>

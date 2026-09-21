@@ -79,23 +79,117 @@ const cloudsLow = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400), new THREE.
 cloudsLow.rotation.x = -Math.PI / 2; cloudsLow.position.y = -55; scene.add(cloudsLow);
 const cloudsNear = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400), new THREE.MeshBasicMaterial({ map: wispTex, color: 0xffffff, transparent: true, opacity: 0.85, fog: false, depthWrite: false }));
 cloudsNear.rotation.x = -Math.PI / 2; cloudsNear.position.y = -9; scene.add(cloudsNear);
-const cumTex = mkCanvas(256, 256, (g, w, h) => { blobs(g, w, h, 14, 40, 70, '186,198,218', 0.8, 0.95, false); blobs(g, w, h, 16, 30, 60, '255,255,255', 0.75, 0.95, false); });
-function mkSprite(tex, col, op, x, y, z, sw, sh, keep) {
+const cumTex = mkCanvas(256, 256, (g, w, h) => { blobs(g, w, h, 14, 40, 70, '186,198,218', 0.8, 0.95, false); blobs(g, w, h, 16, 30, 60, '255,255,255', 0.75, 0.95, false); });   // cadangan bila awan.png gagal dimuat
+function mkSprite(tex, col, op, x, y, z, sw, sh) {
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: tex ? col : 0xdde6f4, transparent: true, opacity: op, fog: false, depthWrite: false }));
   sp.position.set(x, y, z); sp.scale.set(sw, sh, 1); scene.add(sp); return sp;
 }
-for (let i = 0; i < 16; i++) {          // gumpalan awan putih di kejauhan
-  const az = Math.random() * 6.283, rad = 260 + Math.random() * 380; if (Math.abs(Math.atan2(Math.sin(az), Math.cos(az))) < 0.6 && rad < 420) continue;
-  const w = 170 + Math.random() * 170; mkSprite(cumTex, 0xffffff, 0.96, Math.cos(az) * rad, -25 + Math.random() * 90, Math.sin(az) * rad, w, w * 0.62);
+// lembar gambar awan dipotong jadi 7 bentuk (u0, v0 atas, u1, v1 bawah), lalu dipasang sebagai papan awan di berbagai kedalaman
+const CLOUD_RECTS = [[0.0233, 0.5949, 0.7127, 0.8724], [0.01, 0.2553, 0.5613, 0.5084], [0.5593, 0.3914, 0.9753, 0.5992], [0.3033, 0.0243, 0.6487, 0.2236], [0.714, 0.6392, 0.9747, 0.8829], [0.014, 0.0264, 0.2993, 0.2321], [0.7147, 0.0327, 0.91, 0.2911]];
+const cloudSprites = [], skyAir = [], skyCruise = [], stormAll = [], stormMats = [], stormVeil = [];
+function cloudSprite(list, i, col, op, x, y, z, w) { const sp = mkSprite(cumTex, col, op, x, y, z, w, w * 0.5); cloudSprites.push({ sp, w, i }); if (list) list.push(sp); return sp; }
+function stormSprite(i, col, op, x, y, z, w) { const sp = cloudSprite(stormAll, i, col, op, x, y, z, w), c = new THREE.Color(col); stormMats.push({ mat: sp.material, base: [c.r, c.g, c.b] }); return sp; }
+{
+  let s0 = 5; const r = () => { s0 = (s0 * 16807) % 2147483647; return s0 / 2147483647; };
+  for (let i = 0; i < 24; i++) {                       // awan di sekitar pesawat saat terbang tinggi
+    const az = r() * 6.283, rad = 240 + r() * 700; if (Math.abs(Math.atan2(Math.sin(az), Math.cos(az))) < 0.6 && rad < 460) continue;
+    cloudSprite(skyCruise, i, 0xffffff, 0.98, Math.cos(az) * rad, -30 + r() * 100, Math.sin(az) * rad, 200 + r() * 260);
+  }
+  for (let i = 0; i < 16; i++) {                       // awan siang di atas bandara
+    const az = r() * 6.283, rad = 700 + r() * 1000;
+    cloudSprite(skyAir, i, 0xffffff, 0.98, Math.cos(az) * rad, 110 + r() * 320, Math.sin(az) * rad, 320 + r() * 420);
+  }
+  for (let i = 0; i < 3; i++) stormSprite(i, 0xaab4c8, 1, 290 + i * 25, 15 + i * 22, 10 + i * 65, 760);
+  for (let i = 0; i < 9; i++) stormVeil.push(stormSprite(i + 1, 0x565f74, 0.6, 96 + (i % 3) * 14, -70 + (i * 37) % 95, 6 + i * 13, 120 + (i % 4) * 34));
 }
-// mendung tebal di sisi kiri (tempat monster muncul): latar abu terang di belakang, gumpalan gelap menutupi di depan
-const stormMats = [];
-function stormSprite(tex, col, op, x, y, z, w, h) { const sp = mkSprite(tex, 0xffffff, op, x, y, z, w, h); const c = new THREE.Color(col); stormMats.push({ mat: sp.material, base: [c.r, c.g, c.b], op }); sp.material.color.setRGB(c.r, c.g, c.b); return sp; }
-const stormBackTex = mkCanvas(256, 256, (g, w, h) => { blobs(g, w, h, 22, 40, 90, '176,186,204', 0.7, 0.95, false); });
-const stormTex = mkCanvas(256, 256, (g, w, h) => { blobs(g, w, h, 20, 34, 84, '78,88,108', 0.6, 0.95, false); });
-const stormVeil = [];
-for (let i = 0; i < 3; i++) stormSprite(stormBackTex, 0xffffff, 1, 290 + i * 25, 15 + i * 22, 10 + i * 65, 720, 430);
-for (let i = 0; i < 9; i++) stormVeil.push(stormSprite(stormTex, 0xffffff, 0.6, 96 + (i % 3) * 14, -70 + (i * 37) % 95, 6 + i * 13, 95 + (i % 4) * 26, 68 + (i % 3) * 14));
+new THREE.TextureLoader().load('awan.png', tex => {
+  try {
+    const img = tex.image, W = img.width, H = img.height, crops = CLOUD_RECTS.map(r => {
+      const sx = r[0] * W, sy = r[1] * H, sw = (r[2] - r[0]) * W, sh = (r[3] - r[1]) * H, c = document.createElement('canvas'); c.width = Math.max(2, Math.round(sw)); c.height = Math.max(2, Math.round(sh));
+      c.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return { tex: t, asp: c.width / c.height };
+    });
+    cloudSprites.forEach(e => { const c = crops[e.i % crops.length]; e.sp.material.map = c.tex; e.sp.material.needsUpdate = true; e.sp.scale.set(e.w, e.w / c.asp, 1); });
+  } catch (er) { console.warn('awan.png gagal dipotong:', er); }
+}, undefined, () => { });
+
+/* ---------- gunung (model gunung.glb) dan rumput (model rumput.glb) untuk adegan bandara ---------- */
+const mountGroup = new THREE.Group(); mountGroup.visible = false; scene.add(mountGroup);
+const mountMats = [], mountHaze = new THREE.Color(0xc8dbf2), MTINT = new THREE.Color(0xb8ffc7);
+function mkMountMat(mix, vcol) {          // kaki gunung memudar ke warna kabut; yang lebih jauh lebih berkabut
+  const m = new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false, side: THREE.DoubleSide, vertexColors: !!vcol }); m.color.multiply(MTINT);
+  m.onBeforeCompile = sh => {
+    sh.uniforms.uHaze = { value: mountHaze }; sh.uniforms.uMix = { value: mix };
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vMY;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvMY = position.y;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec3 uHaze; uniform float uMix; varying float vMY;')
+      .replace('#include <color_fragment>', '#include <color_fragment>\nfloat hzf = 1.0 - smoothstep(0.0, 1.9, vMY);\ndiffuseColor.rgb = mix(diffuseColor.rgb, uHaze, clamp(hzf * 0.85 + uMix, 0.0, 1.0));');
+  };
+  mountMats.push(m); return m;
+}
+const MOUNT_AIR = [   // a = arah (derajat, 0 = searah landasan +z), d = jarak (m), w = lebar, h = tinggi, r = putaran, L = detail (1 sedang, 2 sederhana), mix = kabut
+  { a: 8, d: 1180, w: 74, h: 52, r: 0.3, L: 1, mix: 0.3 }, { a: 34, d: 1240, w: 80, h: 60, r: 1.2, L: 1, mix: 0.32 }, { a: 62, d: 1300, w: 84, h: 66, r: -0.7, L: 1, mix: 0.34 },
+  { a: 88, d: 1220, w: 78, h: 58, r: 2.4, L: 1, mix: 0.3 }, { a: 118, d: 1350, w: 86, h: 54, r: 0.9, L: 2, mix: 0.4 }, { a: 150, d: 1400, w: 90, h: 50, r: -1.9, L: 2, mix: 0.44 },
+  { a: 182, d: 1420, w: 92, h: 56, r: 2.7, L: 2, mix: 0.46 }, { a: 214, d: 1380, w: 88, h: 52, r: 0.5, L: 2, mix: 0.44 }, { a: 244, d: 1340, w: 86, h: 58, r: -0.3, L: 2, mix: 0.42 },
+  { a: 272, d: 1300, w: 84, h: 62, r: 1.7, L: 2, mix: 0.4 }, { a: 300, d: 1260, w: 80, h: 56, r: -2.2, L: 2, mix: 0.36 }, { a: 328, d: 1210, w: 76, h: 54, r: 0.8, L: 2, mix: 0.32 },
+  { a: 350, d: 1280, w: 82, h: 60, r: 2.1, L: 2, mix: 0.36 }
+];
+function mkRing(o) {     // bukit kaki yang mengisi celah cakrawala
+  const n = 120, pos = [], col = [], idx = [];
+  for (let i = 0; i <= n; i++) {
+    const a = i / n * Math.PI * 2, h = Math.max(o.h * 0.35, o.h + o.amp * (0.55 * Math.sin(2 * a + o.seed) + 0.3 * Math.sin(5 * a + o.seed * 1.7) + 0.15 * Math.sin(11 * a + o.seed * 2.3)));
+    pos.push(Math.sin(a) * (o.R - o.inset), -14, Math.cos(a) * (o.R - o.inset), Math.sin(a) * o.R, h - 14, Math.cos(a) * o.R);
+    col.push(0.34, 0.46, 0.36, 0.5, 0.62, 0.5);
+  }
+  for (let i = 0; i < n; i++) { const b = i * 2; idx.push(b, b + 1, b + 2, b + 1, b + 3, b + 2); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.setIndex(idx); return g;
+}
+function setupGunung(g) {
+  const parts = []; g.scene.traverse(o => { if (!o.isMesh) return; const m = /L([012])$/.exec(nameOf(o).split('|')[0]) || /L([012])$/.exec(nameOf(o).split('|')[1] || ''); if (m) parts[+m[1]] = o; });
+  const L1 = parts[1] || parts[0], L2 = parts[2] || L1; if (!L1) return;
+  MOUNT_AIR.forEach(r => {
+    const src = r.L === 1 ? L1 : L2, m = new THREE.Mesh(src.geometry, mkMountMat(r.mix * 0.7, true)), az = r.a * Math.PI / 180;
+    m.position.set(Math.sin(az) * r.d, -8, Math.cos(az) * r.d); m.scale.set(r.w, r.h, r.w); m.rotation.y = r.r; m.frustumCulled = false; mountGroup.add(m);
+  });
+  [{ R: 900, h: 70, amp: 40, seed: 0.7, inset: 150, mix: 0.3 }, { R: 1150, h: 120, amp: 60, seed: 2.1, inset: 220, mix: 0.44 }].forEach(o => { const m = new THREE.Mesh(mkRing(o), mkMountMat(o.mix, true)); m.frustumCulled = false; mountGroup.add(m); });
+}
+const grass = { ready: false, im: null, caps: [1, 6, 30], on: false, t: 0 };
+function gh(a, b) { let h = (a * 374761393 + b * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177 | 0; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+function setupRumput(g) {
+  const lods = []; g.scene.children.forEach(ch => { const m = /^Rumput_L([012])$/.exec(ch.name || ''); if (!m) return; let mesh = null; ch.traverse(o => { if (!mesh && o.isMesh) mesh = o; }); lods[+m[1]] = mesh; });
+  if (!lods[0] && !lods[1] && !lods[2]) g.scene.traverse(o => { if (o.isMesh) { const m = /L([012])$/.exec(o.name || ''); if (m) lods[+m[1]] = o; } });
+  if (!lods[0]) return;
+  const src = lods[0].material, mat = new THREE.MeshLambertMaterial({ map: src.map, alphaTest: src.alphaTest || 0.5, side: THREE.DoubleSide });
+  grass.im = [0, 1, 2].map(L => { const im = new THREE.InstancedMesh((lods[L] || lods[2] || lods[0]).geometry, mat, grass.caps[L]); im.count = 0; im.frustumCulled = false; scene.add(im); return im; });
+  grass.ready = true;
+}
+const _gd = new THREE.Object3D();
+function updateGrass(dt) {          // rumput ditebar di sekitar kamera, di sisi kiri landasan (bukan di aspal)
+  if (!grass.ready || !grass.on) return;
+  grass.t -= dt; if (grass.t > 0) return; grass.t = 0.4;
+  const px = camera.position.x, pz = camera.position.z, R = 50, GC = 5, near = [];
+  for (let i = Math.floor((px - R) / GC); i <= Math.floor((px + R) / GC); i++) for (let j = Math.floor((pz - R) / GC); j <= Math.floor((pz + R) / GC); j++) {
+    if (gh(i, j) > 0.8) continue;
+    const x = (i + 0.15 + 0.7 * gh(i + 91, j)) * GC, z = (j + 0.15 + 0.7 * gh(i, j + 57)) * GC, d = Math.hypot(x - px, z - pz);
+    if (d > R || x > -32) continue; near.push([d, x, z, i, j]);
+  }
+  near.sort((a, b) => a[0] - b[0]);
+  const cnt = [0, 0, 0];
+  for (const e of near) {
+    let L = e[0] < 9 ? 0 : (e[0] < 24 ? 1 : 2);
+    while (L < 3 && cnt[L] >= grass.caps[L]) L++;
+    if (L >= 3) continue;
+    const k = 0.65 + 0.5 * gh(e[3] + 13, e[4] + 7);
+    _gd.position.set(e[1], 0.0, e[2]); _gd.rotation.set(0, gh(e[3] + 29, e[4] + 3) * 6.283, 0); _gd.scale.setScalar(k); _gd.updateMatrix(); grass.im[L].setMatrixAt(cnt[L]++, _gd.matrix);
+  }
+  for (let L = 0; L < 3; L++) { grass.im[L].count = cnt[L]; grass.im[L].instanceMatrix.needsUpdate = true; }
+}
+// beralih antara adegan bandara (siang, berkabut) dan adegan di ketinggian (kabin)
+function airScene(on) {
+  scene.fog = on ? fogDay : null; if (M.bandara) M.bandara.visible = on; mountGroup.visible = on; grass.on = on;
+  if (!on && grass.im) grass.im.forEach(im => { im.count = 0; });
+  skyAir.forEach(x => { x.visible = on; }); skyCruise.forEach(x => { x.visible = !on; }); stormAll.forEach(x => { x.visible = !on; });
+  cloudsLow.visible = !on; cloudsNear.visible = !on;
+  camera.near = on ? 0.3 : 0.05; camera.far = on ? 3400 : 1200; camera.updateProjectionMatrix();
+}
 
 /* ---------- audio buatan ---------- */
 const AU = { ctx: null, on: true, master: null, hum: null, rumble: null, noise: null, murmur: null, ev: 0.1 };
@@ -159,7 +253,7 @@ function stepTweens(dt) {
 const rig = new THREE.Group(); scene.add(rig);              // gerak pesawat saat lepas landas
 const root = new THREE.Group(); rig.add(root);              // goyangan pesawat
 const inner = new THREE.Group(); root.add(inner);           // kabin + penumpang
-const fogDay = new THREE.FogExp2(0xc8dbf2, 0.0011);
+const fogDay = new THREE.FogExp2(0xc8dbf2, 0.0007);
 const M = { cabin: null, luar: null, orang: null, bandara: null };
 const seatChunks = {};      // ci -> { H: [], L: [], zc }
 const lampMats = [];
@@ -382,8 +476,7 @@ const markG = new THREE.Group(); markG.visible = false; inner.add(markG);
 
 /* ---------- cerita: bandara, lepas landas, bangun, jalan-jalan, guncangan, monster ---------- */
 async function opening() {
-  scene.fog = fogDay; if (M.bandara) M.bandara.visible = true;
-  cloudsLow.visible = false; cloudsNear.visible = false; inner.visible = false; if (M.luar) M.luar.visible = true;
+  airScene(true); inner.visible = false; if (M.luar) M.luar.visible = true;
   FL.z = -330; FL.y = -1.4; FL.pitch = 0; applyFlight();
   CAM.track = true; CAM.tox = 0; CAM.toy = 7.5; CAM.fov = 58; setCine([-48, 2.6, -160], [0, 5, -330]);
   AU.ev = 0.15;
@@ -398,7 +491,7 @@ async function opening() {
   tween(FL, { z: 1700 }, 13, t => t); tween(FL, { y: 900 }, 13, t => t * t * 0.8 + t * 0.2); tween(FL, { pitch: -0.36 }, 6);
   await wait(11);                                                                // naik terus sampai hilang dari pandangan
   await fade(1, 1.5);
-  scene.fog = null; if (M.bandara) M.bandara.visible = false; cloudsLow.visible = true; cloudsNear.visible = true;
+  airScene(false);
   FL.z = 0; FL.y = 0; FL.pitch = 0; applyFlight(); if (M.luar) M.luar.visible = false; inner.visible = true; CAM.track = false; AU.ev = 0.1;
 }
 async function cabinIntro() {
@@ -494,7 +587,7 @@ function resetStory() {
   kr.g.visible = false; kr.rise = 0; el.blur.style.opacity = '0'; el.card.classList.remove('on'); hint(''); setObj(''); setAct(null); markG.visible = false; el.sprint.style.display = 'none';
   el.sub.classList.remove('on'); el.pa.classList.remove('on');
   for (let i = npcs.length - 1; i >= 0; i--) if (npcs[i].tag === 'mc') { inner.remove(npcs[i].o); npcs.splice(i, 1); }
-  scene.fog = null; if (M.bandara) M.bandara.visible = false; cloudsLow.visible = true; cloudsNear.visible = true; inner.visible = true; FL.z = 0; FL.y = 0; FL.pitch = 0; applyFlight(); AU.ev = 0.1;
+  airScene(false); inner.visible = true; FL.z = 0; FL.y = 0; FL.pitch = 0; applyFlight(); AU.ev = 0.1;
   if (M.luar) M.luar.visible = false;
   if (AU.rumble) AU.rumble.gain.value = 0; if (AU.murmur) AU.murmur.gain.value = 0.05;
 }
@@ -542,6 +635,8 @@ function updateWorld(dt, t) {
     kr.g.position.set(x, y + Math.sin(t * 0.6) * 1.5, z); kr.g.rotation.y = -Math.PI / 2 + Math.sin(t * 0.25) * 0.14; kr.g.scale.setScalar(40 * (1 + Math.sin(t * 0.9) * 0.012));
     if ((kr.fc = (kr.fc + 1) % 2) === 0) animKraken(t);
   } else kr.g.visible = false;
+  skyCruise.forEach(p => { p.position.z -= 30 * dt; if (p.position.z < -950) p.position.z += 1900; });
+  skyAir.forEach(p => { p.position.x += 2.5 * dt; if (p.position.x > 1800) p.position.x -= 3600; });
   stormVeil.forEach((p, i) => { p.material.opacity = 0.5 + 0.12 * Math.sin(t * 0.4 + i); p.position.y += Math.sin(t * 0.3 + i) * 0.03; });
   for (const ci in seatChunks) { const c = seatChunks[ci], near = Math.abs(c.zc - camera.position.z) < 3.6; c.H.forEach(o => { o.visible = near; }); c.L.forEach(o => { o.visible = !near; }); }
   el.redfx.style.opacity = String(clamp(G.turb * 0.1 + (G.blackout > 0 ? 0.2 : 0), 0, 0.6));
@@ -556,7 +651,7 @@ function updateActContext() {
 function loop(now) {
   requestAnimationFrame(loop);
   const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now; const t = now / 1000;
-  if (G.state === 'play') { stepTweens(dt); updatePlayer(dt, t); updateActContext(); }
+  if (G.state === 'play') { stepTweens(dt); updatePlayer(dt, t); updateActContext(); updateGrass(dt); }
   if (G.state === 'play' || G.state === 'end' || G.state === 'title') updateWorld(dt, t);
   updateCamera(dt, t);
   renderer.render(scene, camera);
@@ -565,16 +660,19 @@ function loop(now) {
 }
 
 /* ---------- mulai ---------- */
+airScene(false);
 setCine([0.4, 6.5, -6], [0.8, 6, 6]);
 (async () => {
   try {
-    const gc = await loadGLB('kabin2_garuda.glb', 0, 45); setupCabin(gc);
-    const go = await loadGLB('orang.glb', 45, 62); prepOrang(go); populate();
-    try { const gk = await loadGLB('kraken.glb', 62, 72); setupKraken(gk); } catch (e) { showErr(e.message); }
-    try { const gl = await loadGLB('pesawat_luar.glb', 72, 84); setupLuar(gl); } catch (e) { showErr(e.message); }
-    try { const gb = await loadGLB('bandara.glb', 84, 100); setupBandara(gb); } catch (e) { showErr(e.message); }
+    const gc = await loadGLB('kabin2_garuda.glb', 0, 40); setupCabin(gc);
+    const go = await loadGLB('orang.glb', 40, 55); prepOrang(go); populate();
+    try { const gk = await loadGLB('kraken.glb', 55, 63); setupKraken(gk); } catch (e) { showErr(e.message); }
+    try { const gl = await loadGLB('pesawat_luar.glb', 63, 73); setupLuar(gl); } catch (e) { showErr(e.message); }
+    try { const gb = await loadGLB('bandara.glb', 73, 80); setupBandara(gb); } catch (e) { showErr(e.message); }
+    try { const gg = await loadGLB('gunung.glb', 80, 90); setupGunung(gg); } catch (e) { console.warn(e.message); }
+    try { const gr = await loadGLB('rumput.glb', 90, 100); setupRumput(gr); } catch (e) { console.warn(e.message); }
     el.loading.style.display = 'none'; fade(0, 1.0); showTitle();
   } catch (e) { el.loading.style.display = 'none'; showErr(e.message); showTitle(); }
 })();
 requestAnimationFrame(loop);
-if (window.__DEBUG) window.__dbg = { G, CAM, SEAT, WALK, FL, SEATB, mv, kr, npcs, seatChunks, M, story, startStory, get act() { return ACT; }, get allowMove() { return allowMove; }, scene, rig, get shake() { return shakeAmp; }, camera, scene, sfx, TIMn: () => TIM.length };
+if (window.__DEBUG) window.__dbg = { G, CAM, SEAT, WALK, FL, SEATB, mv, mountGroup, grass, cloudSprites, skyAir, skyCruise, stormAll, camera, airScene, kr, npcs, seatChunks, M, story, startStory, get act() { return ACT; }, get allowMove() { return allowMove; }, scene, rig, get shake() { return shakeAmp; }, camera, scene, sfx, TIMn: () => TIM.length };

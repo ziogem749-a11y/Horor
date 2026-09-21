@@ -1,0 +1,8 @@
+{
+  "appId": "com.game2.penerbanganmalam",
+  "appName": "Penerbangan Malam",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  }
+}

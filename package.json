@@ -1,0 +1,18 @@
+{
+  "name": "penerbangan-malam",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Penerbangan Malam - game horor di dalam kabin pesawat",
+  "dependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/cli": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
+    "three": "0.160.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.21.5"
+  },
+  "scripts": {
+    "build": "mkdir -p www && esbuild game.js --bundle --minify --format=iife --target=chrome90 --outfile=www/game.js && cp index.html www/"
+  }
+}

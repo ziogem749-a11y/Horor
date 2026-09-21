@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>Penerbangan Malam</title>
+<style>
+:root{--amber:#f2b84b;--ink:#2b1c05;--bone:#e6eadb;--dim:#9aa596;--panel:rgba(12,18,16,.9)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:#000;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--bone)}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block}
+#vig{position:fixed;inset:0;pointer-events:none;z-index:1;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 55%,rgba(0,0,0,.55) 100%)}
+#app{position:fixed;inset:0;z-index:5;pointer-events:none}
+#app>*{pointer-events:auto}
+#touch{position:absolute;inset:0;touch-action:none}
+#joy{position:absolute;width:110px;height:110px;border-radius:50%;border:2px solid rgba(230,234,219,.35);background:rgba(230,234,219,.08);display:none;pointer-events:none}
+#joy.on{display:block}
+#joy i{position:absolute;left:35px;top:35px;width:40px;height:40px;border-radius:50%;background:rgba(230,234,219,.45)}
+.hud{position:absolute;top:calc(10px + env(safe-area-inset-top,0px));width:46px;height:46px;border-radius:12px;background:rgba(10,14,12,.6);border:1px solid rgba(230,234,219,.25);font-size:20px}
+#pauseBtn{right:calc(10px + env(safe-area-inset-right,0px))}
+#muteBtn{right:calc(64px + env(safe-area-inset-right,0px))}
+#noteBtn{right:calc(118px + env(safe-area-inset-right,0px))}
+#obj{position:absolute;left:calc(12px + env(safe-area-inset-left,0px));top:calc(12px + env(safe-area-inset-top,0px));max-width:46%;padding:8px 12px;border-radius:10px;background:rgba(10,14,12,.6);border-left:3px solid var(--amber);font-size:14px;line-height:1.3;display:none;pointer-events:none}
+#obj.on{display:block}
+#toast{position:absolute;left:50%;top:calc(66px + env(safe-area-inset-top,0px));transform:translateX(-50%);max-width:70%;padding:8px 14px;border-radius:10px;background:rgba(10,14,12,.85);border:1px solid var(--amber);font-size:14px;text-align:center;opacity:0;transition:opacity .4s;pointer-events:none}
+#toast.on{opacity:1}
+#dlg{position:absolute;left:50%;bottom:calc(12px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);width:min(88%,780px);display:none;background:var(--panel);border:2px solid rgba(230,234,219,.55);border-radius:12px;padding:10px 18px 18px}
+#dlg.on{display:block}
+#dlg .who{font-family:Georgia,serif;font-weight:700;font-size:15px;margin-bottom:2px}
+#dlg .txt{font-family:Georgia,serif;font-size:18px;line-height:1.4;min-height:2.8em}
+#dlg .txt.nar{font-style:italic;color:#d8d2b8}
+#dlg .nx{position:absolute;right:14px;bottom:5px;font-size:12px;opacity:0;color:var(--dim)}
+#dlg.done .nx{opacity:.85;animation:blink 1s ease-in-out infinite}
+@keyframes blink{50%{opacity:.25}}
+#choices{position:absolute;left:50%;bottom:calc(14px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);width:min(88%,780px);display:none;flex-direction:column;gap:8px}
+#choices.on{display:flex}
+#choices button{padding:12px 16px;border-radius:12px;background:var(--panel);border:2px solid var(--amber);font-family:Georgia,serif;font-size:17px;text-align:left}
+#actBtn{position:absolute;right:calc(18px + env(safe-area-inset-right,0px));bottom:calc(30px + env(safe-area-inset-bottom,0px));display:none;height:64px;padding:0 24px;border-radius:32px;background:var(--amber);color:var(--ink);font-weight:800;font-size:17px;box-shadow:0 5px 0 rgba(0,0,0,.45),0 0 26px rgba(242,184,75,.55);animation:pulse 1.1s ease-in-out infinite}
+#actBtn.on{display:block}
+@keyframes pulse{50%{transform:scale(1.05)}}
+#fade{position:fixed;inset:0;background:#000;opacity:1;pointer-events:none;z-index:15;transition:opacity 1s}
+#card{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#000;opacity:0;pointer-events:none;transition:opacity .8s;padding:20px;text-align:center}
+#card.on{opacity:1}
+#card .ct{font-family:Georgia,serif;font-weight:700;font-size:36px;color:var(--amber)}
+#card .cs{font-family:Georgia,serif;font-style:italic;font-size:20px;margin-top:8px;max-width:640px}
+#panel,#notes{position:fixed;inset:0;z-index:30;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.72);padding:16px}
+#panel.on,#notes.on{display:flex}
+.board{width:min(92%,440px);max-height:92%;overflow:auto;background:#101a17;border:2px solid var(--bone);border-radius:16px;padding:18px 20px;box-shadow:0 10px 40px rgba(0,0,0,.6)}
+.board h1{margin:0;font-family:Georgia,serif;font-size:32px;color:var(--amber)}
+.board h2{margin:2px 0 10px;font-family:Georgia,serif;font-style:italic;font-weight:400;font-size:18px}
+.board p,.board li{color:#b7c0b3;font-size:15px;line-height:1.45}
+.board ul{padding-left:20px;margin:8px 0 14px}
+.cta{display:block;width:100%;margin-top:10px;padding:14px;border-radius:12px;background:var(--amber);color:var(--ink);font-weight:800;font-size:17px}
+.cta.alt{background:transparent;color:var(--bone);border:2px solid rgba(230,234,219,.5)}
+#err{position:fixed;left:0;right:0;top:0;z-index:60;background:#7a1010;color:#fff;font-size:12px;padding:6px 10px;display:none}
+#err.on{display:block}
+#rot{position:fixed;inset:0;z-index:40;background:#000;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:12px}
+#rot.on{display:flex}
+#rot button{padding:10px 18px;border:1px solid var(--dim);border-radius:10px;color:var(--dim)}
+
+#alertWrap{position:absolute;left:50%;top:calc(10px + env(safe-area-inset-top,0px));transform:translateX(-50%);width:min(34%,220px);text-align:center;font-size:12px;letter-spacing:.08em;color:var(--dim)}
+#alertWrap .bar{height:8px;border-radius:4px;background:rgba(255,255,255,.14);overflow:hidden;margin-top:4px}
+#alertWrap .bar i{display:block;height:100%;width:0;background:#e0463a}
+#hp{position:absolute;left:calc(12px + env(safe-area-inset-left,0px));top:calc(74px + env(safe-area-inset-top,0px));font-size:13px;color:var(--dim)}
+#hp b{color:#e0463a;letter-spacing:.15em}
+.rbtn{position:absolute;width:62px;height:62px;border-radius:50%;background:rgba(10,14,12,.7);border:2px solid rgba(230,234,219,.4);font-size:24px;touch-action:none}
+.rbtn.on{background:rgba(242,184,75,.85);color:#2b1c05}
+#btnCrouch{right:calc(18px + env(safe-area-inset-right,0px));bottom:calc(112px + env(safe-area-inset-bottom,0px))}
+#btnFlash{right:calc(18px + env(safe-area-inset-right,0px));bottom:calc(184px + env(safe-area-inset-bottom,0px))}
+#btnSprint{right:calc(92px + env(safe-area-inset-right,0px));bottom:calc(112px + env(safe-area-inset-bottom,0px))}
+#redfx{position:fixed;inset:0;pointer-events:none;z-index:2;opacity:0;background:radial-gradient(ellipse at center,rgba(120,0,0,0) 40%,rgba(160,0,0,.75) 100%)}
+#loading{position:fixed;inset:0;z-index:50;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:var(--bone);font-family:Georgia,serif}
+#loading .ld{width:min(70%,320px);height:6px;border-radius:3px;background:rgba(255,255,255,.15);overflow:hidden}
+#loading .ld i{display:block;height:100%;width:0;background:var(--amber)}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="vig"></div>
+<div id="redfx"></div>
+<div id="app">
+  <div id="touch"></div>
+  <div id="joy"><i></i></div>
+  <div id="obj"></div>
+  <div id="alertWrap"><div>MATA DI LUAR</div><div class="bar"><i id="alertFill"></i></div></div>
+  <div id="hp"></div>
+  <div id="toast"></div>
+  <button class="hud" id="muteBtn">&#128266;</button>
+  <button class="hud" id="pauseBtn">&#9208;</button>
+  <button class="rbtn" id="btnSprint">&#127939;</button>
+  <button class="rbtn" id="btnCrouch">&#129486;</button>
+  <button class="rbtn on" id="btnFlash">&#128294;</button>
+  <button id="actBtn"></button>
+</div>
+<div id="fade"></div>
+<div id="card"><div class="ct"></div><div class="cs"></div></div>
+<div id="panel"></div>
+<div id="err"></div>
+<div id="loading"><div>Memuat pesawat...</div><div class="ld"><i id="ldFill"></i></div><div id="ldPct" style="font-size:13px;color:var(--dim)">0%</div></div>
+<script src="game.js"></script>
+</body>
+</html>

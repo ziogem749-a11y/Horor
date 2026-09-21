@@ -12,7 +12,8 @@ const ease = t => t * t * (3 - 2 * t);
 const el = {
   gl: $('#gl'), touch: $('#touch'), toast: $('#toast'), fade: $('#fade'), card: $('#card'), panel: $('#panel'), err: $('#err'),
   pause: $('#pauseBtn'), mute: $('#muteBtn'), redfx: $('#redfx'), blur: $('#blur'), sub: $('#sub'), pa: $('#pa'), hint: $('#hint'),
-  loading: $('#loading'), ldFill: $('#ldFill'), ldPct: $('#ldPct')
+  loading: $('#loading'), ldFill: $('#ldFill'), ldPct: $('#ldPct'),
+  joy: $('#joy'), obj: $('#obj'), act: $('#actBtn'), sprint: $('#btnSprint')
 };
 function showErr(m) { el.err.textContent = String(m).slice(0, 320); el.err.classList.add('on'); }
 window.addEventListener('error', e => showErr(e.message + ' @' + (e.lineno || '')));
@@ -97,7 +98,7 @@ for (let i = 0; i < 3; i++) stormSprite(stormBackTex, 0xffffff, 1, 290 + i * 25,
 for (let i = 0; i < 9; i++) stormVeil.push(stormSprite(stormTex, 0xffffff, 0.6, 96 + (i % 3) * 14, -70 + (i * 37) % 95, 6 + i * 13, 95 + (i % 4) * 26, 68 + (i % 3) * 14));
 
 /* ---------- audio buatan ---------- */
-const AU = { ctx: null, on: true, master: null, hum: null, rumble: null, noise: null, murmur: null };
+const AU = { ctx: null, on: true, master: null, hum: null, rumble: null, noise: null, murmur: null, ev: 0.1 };
 function auInit() {
   if (AU.ctx) { if (AU.ctx.state === 'suspended') AU.ctx.resume(); return; }
   try {
@@ -129,14 +130,20 @@ const sfx = {
   slam() { nburst(1.0, 0.7, 700); tone(54, 1.2, 'sine', 0.6, 22); },
   scream(k) { const f = 620 + Math.random() * 380; tone(f, 0.9 + Math.random() * 0.5, 'sawtooth', 0.045 * (k || 1), f * 1.5, Math.random() * 0.15); tone(f * 2, 0.7, 'square', 0.02 * (k || 1), f * 2.6); },
   static(d) { nburst(d || 0.8, 0.22, 3800); },
+  step(v) { nburst(0.1, 0.14 * v, 500); },
   growl() { tone(46, 2.4, 'sawtooth', 0.2, 30); nburst(2.0, 0.2, 280); },
   rattle() { nburst(0.5, 0.14, 1500); }
 };
 
 /* ---------- variabel keadaan ---------- */
-const G = { state: 'load', started: false, turb: 0, cabin: 1, flash: 0, blackout: 0, look: 0, brace: 0, panic: 0, ibuTalk: 0 };
-const CAM = { mode: 'cine', px: 0, py: 0, pz: 0, lx: 0, ly: 0, lz: 0, fov: 70, leanX: 0, leanY: 0, leanZ: 0 };
-const SEAT = { x: seatX(1, 2), z: rowZ(12) + 0.28, eye: CUSHION + 0.77, yaw: 0, pitch: 0, guide: false, yawT: 0, pitT: 0, lookSum: 0 };
+const G = { state: 'load', started: false, turb: 0, cabin: 1, flash: 0, blackout: 0, look: 0, brace: 0, panic: 0, ibuTalk: 0, sitGoal: false, standing: false };
+const CAM = { mode: 'cine', px: 0, py: 0, pz: 0, lx: 0, ly: 0, lz: 0, fov: 70, leanX: 0, leanY: 0, leanZ: 0, track: false, tox: 0, toy: 5 };
+const SEAT = { x: seatX(1, 0), z: rowZ(12) + 0.28, eye: CUSHION + 0.77, yaw: 0, pitch: 0, guide: false, yawT: 0, pitT: 0, lookSum: 0 };
+const WALK = { x: 0, z: 0, yaw: 0, pitch: 0, eye: 6.77, bob: 0, stepT: 0, speed: 0, dist: 0, sprint: false };
+const FL = { z: 0, y: 0, pitch: 0 };                                   // pose pesawat saat lepas landas
+const SEATB = { x: seatX(1, 2), z: rowZ(8) + 0.28 };                      // kursi kosong dekat jendela (untuk melihat monster)
+const AISLE = 0.24, WZ0 = -9.6, WZ1 = 13.9;
+let allowMove = false, ACT = null;
 let TW = [], TIM = [], shakeAmp = 0, roll = 0, flickerT = 0;
 function tween(obj, props, dur, fn) {
   return new Promise(res => { const from = {}; for (const k in props) from[k] = obj[k]; TW.push({ obj, from, to: props, t: 0, dur: Math.max(0.001, dur), res, fn: fn || ease }); });
@@ -149,8 +156,11 @@ function stepTweens(dt) {
 }
 
 /* ---------- pemuatan model ---------- */
-const root = new THREE.Group(); scene.add(root);
-const M = { cabin: null, luar: null, orang: null };
+const rig = new THREE.Group(); scene.add(rig);              // gerak pesawat saat lepas landas
+const root = new THREE.Group(); rig.add(root);              // goyangan pesawat
+const inner = new THREE.Group(); root.add(inner);           // kabin + penumpang
+const fogDay = new THREE.FogExp2(0xc8dbf2, 0.0011);
+const M = { cabin: null, luar: null, orang: null, bandara: null };
 const seatChunks = {};      // ci -> { H: [], L: [], zc }
 const lampMats = [];
 function loadGLB(url, w0, w1) {
@@ -171,8 +181,9 @@ function setupCabin(g) {
     const m = /Kursi_(\d+)_([HL])/.exec(nm);
     if (m) { const ci = +m[1]; (seatChunks[ci] = seatChunks[ci] || { H: [], L: [], zc: -10.3 + 1.7 * (ci + 0.5) })[m[2]].push(o); }
   });
-  root.add(g.scene); M.cabin = g.scene;
+  inner.add(g.scene); M.cabin = g.scene;
 }
+function setupBandara(g) { g.scene.traverse(o => { if (o.isMesh) { o.material = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }); o.frustumCulled = false; } }); g.scene.visible = false; scene.add(g.scene); M.bandara = g.scene; }
 function setupLuar(g) { g.scene.traverse(o => { if (o.isMesh) { o.material = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }); } }); g.scene.visible = false; root.add(g.scene); M.luar = g.scene; }
 const kr = { g: new THREE.Group(), mats: [], rise: 0, near: 0, amp: 0.11, flashT: 0, pos: null, base: null, fc: 0 };
 function setupKraken(g) {
@@ -217,7 +228,7 @@ function putNpc(name, x, z, ry, tag) {
     const headP = new THREE.Group(); headP.position.set(nk[0] - HIP[0], nk[1] - HIP[1], nk[2] - HIP[2]); const head = headS.clone(true); head.position.set(-nk[0], -nk[1], -nk[2]); headP.add(head); torP.add(headP);
     n.torP = torP; n.headP = headP;
   } else { const src = orangNode(name); if (!src) return null; g.add(src.clone(true)); }
-  root.add(g); npcs.push(n); return n;
+  inner.add(g); npcs.push(n); return n;
 }
 // gerakan penumpang: napas, menoleh, membaca, tertidur; saat panik merunduk atau menoleh ke jendela
 function animNpcs(t, dt) {
@@ -237,6 +248,7 @@ function animNpcs(t, dt) {
     else if (n.beh === 'sleep') { hp = 0.42 + Math.sin(t * 0.5 + ph) * 0.06; lean = 0.1; rz = Math.sin(t * 0.2 + ph) * 0.03; }
     else { hy = Math.sin(t * 0.4 + ph) * 0.18; lean = Math.sin(t * 0.6 + ph) * 0.015; hp = Math.sin(t * 0.3 + ph) * 0.04; }
     if (n.tag === 'ibu') { n.tk = lerp(n.tk, G.ibuTalk, Math.min(1, dt * 3)); hy = lerp(hy, 0.75, n.tk); hp = lerp(hp, 0.05, n.tk); lean = lerp(lean, 0, n.tk); }
+    if (CAM.mode === 'walk' && look < 0.2 && n.beh !== 'sleep') { const dx = WALK.x - n.x, dz = WALK.z - n.z, dd = Math.hypot(dx, dz); if (dd < 2.6) { hy = lerp(hy, clamp(Math.atan2(dx, dz), -1.1, 1.1), clamp(1 - dd / 2.6, 0, 1) * 0.85); hp = lerp(hp, 0.05, 0.5); } }
     const wl = look * n.lw, bw = brace * n.bw;
     hy = lerp(hy, 1.15, wl); hp = lerp(hp, -0.05, wl); lean += bw * 0.3; hp += bw * 0.35;
     hy += Math.sin(t * 17 + ph * 3) * 0.08 * G.panic;
@@ -249,7 +261,8 @@ function populate() {
   const cols = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'], mcRow = 12;
   const hero = { '11:1:1': 'Wanita_B', '13:1:0': 'Pria_B', '12:-1:1': 'Wanita_C', '12:-1:0': 'Pria_C', '10:-1:2': 'Pria_A' };
   for (let k = 0; k < NROW; k++) for (const side of [1, -1]) for (let col = 0; col < 3; col++) {
-    if (k === mcRow && side === 1) { if (col === 2) continue; if (col === 1) { putNpc('Wanita_A', seatX(side, col), rowZ(k) + 0.3, 0, 'ibu'); continue; } if (col === 0) { putNpc('Pria_A', seatX(side, col), rowZ(k) + 0.3, 0, 'bapak'); continue; } }
+    if (k === 8 && side === 1) continue;                                  // baris kosong: tempat melihat jendela
+    if (k === mcRow && side === 1) { if (col === 0) continue; if (col === 1) { putNpc('Wanita_A', seatX(side, col), rowZ(k) + 0.3, 0, 'ibu'); continue; } if (col === 2) { putNpc('Pria_A', seatX(side, col), rowZ(k) + 0.3, 0, 'bapak'); continue; } }
     const key = k + ':' + side + ':' + col;
     if (hero[key]) { putNpc(hero[key], seatX(side, col), rowZ(k) + 0.3, 0); continue; }
     if (rnd() > (Math.abs(k - mcRow) < 7 ? 0.75 : 0.45)) continue;
@@ -258,18 +271,59 @@ function populate() {
   }
 }
 
-/* ---------- pengatur kamera ---------- */
-let lookId = null, lookL = { x: 0, y: 0 }, allowLook = false;
-el.touch.addEventListener('pointerdown', e => { e.preventDefault(); auInit(); if (!allowLook || lookId !== null) return; lookId = e.pointerId; lookL = { x: e.clientX, y: e.clientY }; try { el.touch.setPointerCapture(e.pointerId); } catch (er) { } });
-el.touch.addEventListener('pointermove', e => {
-  if (e.pointerId !== lookId || !allowLook || SEAT.guide) return;
-  const dx = e.clientX - lookL.x, dy = e.clientY - lookL.y; lookL = { x: e.clientX, y: e.clientY };
-  const ny = clamp(SEAT.yaw - dx * 0.0055, -1.9, 1.9), np = clamp(SEAT.pitch - dy * 0.0045, -0.7, 0.75);
-  SEAT.lookSum += Math.abs(ny - SEAT.yaw) + Math.abs(np - SEAT.pitch); SEAT.yaw = ny; SEAT.pitch = np;
+/* ---------- kontrol pemain: joystick kiri, geser kanan untuk melihat, tombol aksi ---------- */
+const mv = { x: 0, y: 0 }, keys = {};
+let joyId = null, joyO = { x: 0, y: 0 }, lookId = null, lookL = { x: 0, y: 0 }, allowLook = false;
+function resetInput() { joyId = lookId = null; mv.x = mv.y = 0; WALK.sprint = false; el.joy.classList.remove('on'); const i = el.joy.firstElementChild; if (i && i.style) i.style.transform = ''; }
+el.touch.addEventListener('pointerdown', e => {
+  e.preventDefault(); auInit();
+  if (e.clientX < window.innerWidth * 0.45 && allowMove && joyId === null) {
+    joyId = e.pointerId; joyO = { x: e.clientX, y: e.clientY }; el.joy.style.left = (e.clientX - 55) + 'px'; el.joy.style.top = (e.clientY - 55) + 'px'; el.joy.classList.add('on');
+  } else if (allowLook && lookId === null) { lookId = e.pointerId; lookL = { x: e.clientX, y: e.clientY }; }
+  try { el.touch.setPointerCapture(e.pointerId); } catch (er) { }
 });
-function endPtr(e) { if (e.pointerId === lookId) lookId = null; }
+function applyLook(dx, dy) {
+  if (CAM.mode === 'seat') {
+    if (SEAT.guide) return;
+    const ny = clamp(SEAT.yaw - dx * 0.0055, -1.9, 1.9), np = clamp(SEAT.pitch - dy * 0.0045, -0.7, 0.75);
+    SEAT.lookSum += Math.abs(ny - SEAT.yaw) + Math.abs(np - SEAT.pitch); SEAT.yaw = ny; SEAT.pitch = np;
+  } else if (CAM.mode === 'walk') { WALK.yaw -= dx * 0.0055; WALK.pitch = clamp(WALK.pitch - dy * 0.0045, -1.1, 1.1); SEAT.lookSum += Math.abs(dx) * 0.0055; }
+}
+el.touch.addEventListener('pointermove', e => {
+  if (e.pointerId === joyId) {
+    let dx = e.clientX - joyO.x, dy = e.clientY - joyO.y; const l = Math.hypot(dx, dy), m = 46; if (l > m) { dx = dx / l * m; dy = dy / l * m; }
+    mv.x = dx / m; mv.y = -dy / m; const i = el.joy.firstElementChild; if (i && i.style) i.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+  } else if (e.pointerId === lookId && allowLook) {
+    const dx = e.clientX - lookL.x, dy = e.clientY - lookL.y; lookL = { x: e.clientX, y: e.clientY }; applyLook(dx, dy);
+  }
+});
+function endPtr(e) {
+  if (e.pointerId === joyId) { joyId = null; mv.x = mv.y = 0; el.joy.classList.remove('on'); const i = el.joy.firstElementChild; if (i && i.style) i.style.transform = ''; }
+  if (e.pointerId === lookId) lookId = null;
+}
 el.touch.addEventListener('pointerup', endPtr); el.touch.addEventListener('pointercancel', endPtr);
-window.addEventListener('mousemove', e => { if (e.buttons && allowLook && !SEAT.guide) { SEAT.yaw = clamp(SEAT.yaw - (e.movementX || 0) * 0.004, -1.9, 1.9); SEAT.pitch = clamp(SEAT.pitch - (e.movementY || 0) * 0.003, -0.7, 0.75); SEAT.lookSum += 0.01; } });
+window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; if (e.key === 'Shift') keys.shift = true; if (e.key.toLowerCase() === 'e' && ACT) ACT.run(); });
+window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; if (e.key === 'Shift') keys.shift = false; });
+window.addEventListener('mousemove', e => { if (e.buttons && allowLook) applyLook(e.movementX || 0, e.movementY || 0); });
+el.sprint.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); auInit(); WALK.sprint = true; });
+['pointerup', 'pointerleave', 'pointercancel'].forEach(t => el.sprint.addEventListener(t, () => { WALK.sprint = false; }));
+function setAct(label, fn, tag) { ACT = fn ? { label, run: fn, tag: tag || '' } : null; if (ACT) { el.act.textContent = label; el.act.classList.add('on'); } else el.act.classList.remove('on'); }
+el.act.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); auInit(); if (ACT) ACT.run(); });
+function setObj(t) { el.obj.textContent = t || ''; if (t) el.obj.classList.add('on'); else el.obj.classList.remove('on'); el.obj.style.display = t ? 'block' : 'none'; }
+
+function updatePlayer(dt, t) {
+  if (CAM.mode !== 'walk' || !allowMove) { WALK.speed = 0; return; }
+  const f = [Math.sin(WALK.yaw), Math.cos(WALK.yaw)], r = [-Math.cos(WALK.yaw), Math.sin(WALK.yaw)];
+  let ax = mv.x + (keys.d ? 1 : 0) - (keys.a ? 1 : 0), ay = mv.y + (keys.w ? 1 : 0) - (keys.s ? 1 : 0);
+  const l = Math.hypot(ax, ay); if (l > 1) { ax /= l; ay /= l; }
+  const tb = G.turb; let sp = (WALK.sprint || keys.shift) ? 3.1 : 1.6; if (tb > 0.3) sp *= 0.7;
+  let vx = (f[0] * ay + r[0] * ax) * sp, vz = (f[1] * ay + r[1] * ax) * sp;
+  if (tb > 0.3) { vx += Math.sin(t * 6.1) * 0.9 * tb; vz += Math.sin(t * 4.3 + 1) * 0.5 * tb; }          // terhuyung saat guncangan
+  const nx = clamp(WALK.x + vx * dt, -AISLE, AISLE), nz = clamp(WALK.z + vz * dt, WZ0, WZ1), moved = Math.hypot(nx - WALK.x, nz - WALK.z);
+  WALK.speed = moved / Math.max(dt, 1e-4); WALK.dist += moved; WALK.x = nx; WALK.z = nz;
+  if (WALK.speed > 0.3) { WALK.bob += dt * WALK.speed * 3.6; WALK.stepT -= dt * (WALK.speed / 1.6); if (WALK.stepT <= 0) { WALK.stepT = 0.55; sfx.step(WALK.sprint ? 1.5 : 0.8); } }
+}
+function applyFlight() { rig.position.set(0, FL.y, FL.z); rig.rotation.x = FL.pitch; }
 function updateCamera(dt, t) {
   let px, py, pz, lx, ly, lz;
   if (CAM.mode === 'seat') {
@@ -277,7 +331,13 @@ function updateCamera(dt, t) {
     px = SEAT.x + CAM.leanX; py = SEAT.eye + CAM.leanY; pz = SEAT.z + CAM.leanZ;
     const cp = Math.cos(SEAT.pitch), sp = Math.sin(SEAT.pitch), fx = Math.sin(SEAT.yaw) * cp, fz = Math.cos(SEAT.yaw) * cp;
     py += Math.sin(t * 0.7) * 0.004; lx = px + fx; ly = py + sp; lz = pz + fz;
-  } else { px = CAM.px; py = CAM.py; pz = CAM.pz; lx = CAM.lx; ly = CAM.ly; lz = CAM.lz; }
+  } else if (CAM.mode === 'walk') {
+    px = WALK.x; pz = WALK.z; py = WALK.eye + Math.sin(WALK.bob) * 0.025 * clamp(WALK.speed / 1.6, 0, 1.5);
+    const cp = Math.cos(WALK.pitch), sp = Math.sin(WALK.pitch), fx = Math.sin(WALK.yaw) * cp, fz = Math.cos(WALK.yaw) * cp; lx = px + fx; ly = py + sp; lz = pz + fz;
+  } else {
+    px = CAM.px; py = CAM.py; pz = CAM.pz;
+    if (CAM.track) { lx = rig.position.x + CAM.tox; ly = rig.position.y + CAM.toy; lz = rig.position.z; } else { lx = CAM.lx; ly = CAM.ly; lz = CAM.lz; }
+  }
   let sx = 0, sy = 0, sz = 0;
   const amp = shakeAmp + G.turb * 0.05;
   if (amp > 0.0005) { sx = (Math.random() - 0.5) * amp; sy = (Math.random() - 0.5) * amp * 0.8; sz = (Math.random() - 0.5) * amp * 0.6; shakeAmp = Math.max(0, shakeAmp - dt * 0.6); }
@@ -310,80 +370,113 @@ function eyes(o, s) { el.blur.style.transition = 'opacity ' + s + 's'; el.blur.s
 function bolt(k) { G.flash = k === undefined ? 1 : k; sfx.crack(); sfx.thunder(0.5 + Math.random() * 0.6); }
 function flickerLights(s) { flickerT = s; }
 
-/* ---------- cerita ---------- */
-async function story() {
-  G.started = true; G.turb = 0; G.cabin = 1; kr.g.visible = false; kr.rise = 0;
-  hint(''); el.sub.classList.remove('on'); el.pa.classList.remove('on');
-  /* 1. pembuka: pesawat dari luar */
-  if (M.luar) M.luar.visible = true;
-  setCine([70, 13, 62], [0, 7.5, 2]); await fade(0, 1.6);
-  cine([44, 10, -34], [0, 7, 2], 10);
-  await wait(1.2);
-  await say('', 'Tiga hari di Padang. Pemakaman Nenek, tangis Ibu, dan bau hujan di kampung.', { thought: true });
-  await say('', 'Sekarang aku hanya ingin pulang.', { thought: true });
-  await card('PENERBANGAN PULANG', 'Padang \u2192 Jakarta \u00b7 Pukul 14.47', 3600);
-  /* 2. di dalam kabin: MC tertidur */
-  await fade(1, 0.9); if (M.luar) M.luar.visible = false;
+/* ---------- penanda kursi kosong dekat jendela ---------- */
+const markTex = mkCanvas(64, 64, (g, w, h) => { const r = g.createRadialGradient(w / 2, h / 2, 1, w / 2, h / 2, w / 2); r.addColorStop(0, 'rgba(140,255,180,1)'); r.addColorStop(0.4, 'rgba(70,230,130,.5)'); r.addColorStop(1, 'rgba(0,120,50,0)'); g.fillStyle = r; g.fillRect(0, 0, w, h); });
+const markG = new THREE.Group(); markG.visible = false; inner.add(markG);
+{
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.46, 28), new THREE.MeshBasicMaterial({ color: 0x5dff9a, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false, fog: false }));
+  ring.rotation.x = -Math.PI / 2; ring.position.set(0, FLOORY + 0.03, SEATB.z); markG.add(ring);
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: markTex, color: markTex ? 0xffffff : 0x5dff9a, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending }));
+  halo.position.set(SEATB.x, 5.95, SEATB.z); halo.scale.set(1.2, 1.2, 1); markG.add(halo);
+}
+
+/* ---------- cerita: bandara, lepas landas, bangun, jalan-jalan, guncangan, monster ---------- */
+async function opening() {
+  scene.fog = fogDay; if (M.bandara) M.bandara.visible = true;
+  cloudsLow.visible = false; cloudsNear.visible = false; inner.visible = false; if (M.luar) M.luar.visible = true;
+  FL.z = -330; FL.y = -1.4; FL.pitch = 0; applyFlight();
+  CAM.track = true; CAM.tox = 0; CAM.toy = 7.5; CAM.fov = 58; setCine([-48, 2.6, -160], [0, 5, -330]);
+  AU.ev = 0.15;
+  await card('PADANG', 'Pulang ke Jakarta \u00b7 Pukul 14.47', 2800);
+  await fade(0, 1.2);
+  tween(AU, { ev: 1 }, 8.7); tween(FL, { z: 30 }, 8.7, t => t * t);            // menambah kecepatan di landasan
+  await wait(6.5);
+  tween(FL, { pitch: -0.22 }, 2.0); await wait(2.2);                             // hidung terangkat
+  setCine([-62, 3.2, 170], [0, 5, 30]); CAM.track = true; CAM.fov = 55;
+  tween(FL, { z: 430 }, 5, t => t); tween(FL, { y: 40 }, 5, t => t * t);         // lepas landas
+  await wait(5);
+  tween(FL, { z: 1700 }, 13, t => t); tween(FL, { y: 900 }, 13, t => t * t * 0.8 + t * 0.2); tween(FL, { pitch: -0.36 }, 6);
+  await wait(11);                                                                // naik terus sampai hilang dari pandangan
+  await fade(1, 1.5);
+  scene.fog = null; if (M.bandara) M.bandara.visible = false; cloudsLow.visible = true; cloudsNear.visible = true;
+  FL.z = 0; FL.y = 0; FL.pitch = 0; applyFlight(); if (M.luar) M.luar.visible = false; inner.visible = true; CAM.track = false; AU.ev = 0.1;
+}
+async function cabinIntro() {
   const mc = putNpc('MC_tidur', SEAT.x, rowZ(12) + 0.3, 0, 'mc');
-  setCine([0.06, 6.42, 2.5], [1.32, 6.05, 1.25]); CAM.fov = 60; await fade(0, 1.2);
-  cine([0.35, 6.4, 2.05], [1.4, 6.0, 1.25], 6);
-  await wait(2.4);
-  G.turb = 0.35; sfx.rattle(); await wait(1.0); G.turb = 0; shakeAmp = 0.05;
-  await fade(1, 0.6);
-  if (mc) { root.remove(mc.o); const i = npcs.indexOf(mc); if (i >= 0) npcs.splice(i, 1); }
-  CAM.mode = 'seat'; CAM.fov = 72; SEAT.yaw = 0; SEAT.pitch = 0; SEAT.guide = false; SEAT.lookSum = 0;
+  CAM.fov = 60; setCine([-0.28, 6.4, 2.4], [0.6, 6.0, 1.3]);
+  await fade(0, 1.2);
+  cine([0.02, 6.35, 2.1], [0.6, 6.0, 1.3], 5); await wait(2.3);
+  G.turb = 0.35; sfx.rattle(); await wait(0.9); G.turb = 0; shakeAmp = 0.05;
+  await fade(1, 0.5);
+  if (mc) { inner.remove(mc.o); const i = npcs.indexOf(mc); if (i >= 0) npcs.splice(i, 1); }
+  CAM.mode = 'seat'; CAM.fov = 72; SEAT.x = seatX(1, 0); SEAT.z = rowZ(12) + 0.28; SEAT.eye = CUSHION + 0.77; SEAT.yaw = 0; SEAT.pitch = 0; SEAT.guide = false; SEAT.lookSum = 0;
   await eyes(1, 0.01); await fade(0, 0.05);
   await eyes(0.75, 1.2); await eyes(0.2, 0.7); await eyes(0.55, 0.5); await eyes(0, 1.1);
-  await think('Uh... aku ketiduran.');
-  allowLook = true;
-  hint('Geser jari di layar untuk melihat sekeliling'); const t0 = SEAT.lookSum;
-  for (let i = 0; i < 60 && SEAT.lookSum - t0 < 3.2; i++) await wait(0.25);
+  await think('Aku ketiduran...', { hold: 0.5 });
+  allowLook = true; hint('Geser layar di sisi kanan untuk melihat sekeliling'); const t0 = SEAT.lookSum;
+  for (let i = 0; i < 48 && SEAT.lookSum - t0 < 2.6; i++) await wait(0.25);
+  G.standing = false; setAct('Berdiri', () => { setAct(null); standUp(); }, 'stand'); hint('Tekan tombol Berdiri di kanan bawah');
+  for (let i = 0; i < 120 && !G.standing; i++) await wait(0.25);
+  if (!G.standing) { setAct(null); await standUp(); }
   hint('');
-  await think('Kabin hangat dan tenang. Cahaya matahari masuk dari jendela. Ada yang membaca, ada yang tidur, ada yang menonton film.');
-  await say('Ibu di sebelah', 'Sudah bangun, Nak? Tadi sempat goyang sedikit.', { voice: true });
-  await say('Aku', 'Sudah jam berapa, Bu?', { voice: true });
-  await say('Ibu di sebelah', 'Baru jam tiga kurang, Nak. Katanya sebentar lagi kita masuk awan mendung.', { voice: true });
-  await think('Awan mendung? Padahal tadi langit cerah sekali.');
-  /* 3. kapten */
-  await pa('Selamat siang, Bapak dan Ibu penumpang. Di sini kapten kalian berbicara.');
-  await pa('Di depan kita ada awan mendung yang sangat tebal. Kami akan berusaha melewatinya secepat mungkin.');
-  await pa('Mohon semua penumpang tetap duduk, kencangkan sabuk pengaman, dan tetap tenang.');
-  if (AU.murmur) AU.murmur.gain.value = 0.11;
-  sfx.click(); await think('Klik. Sabuk pengaman terpasang.');
-  await say('Ibu di sebelah', 'Aduh, semoga tidak lama...', { voice: true });
-  /* 4. guncangan */
-  G.turb = 0.5; G.brace = 0.3; sfx.rattle(); if (AU.rumble) AU.rumble.gain.value = 0.25; flickerLights(2.5);
-  await wait(2.2); bolt(0.6); await wait(1.4);
-  await say('Penumpang di belakang', 'Ini bukan turbulensi biasa!', { voice: true, hold: 0.6 });
-  G.turb = 0.9; G.brace = 0.6; if (AU.rumble) AU.rumble.gain.value = 0.5; bolt(1); for (let i = 0; i < 4; i++) sfx.scream(0.7);
-  await wait(1.6);
-  await pa('Bapak Ibu... kami mengalami turbulensi... harap semua... kembali ke...');
-  sfx.static(1.2); G.turb = 1.4; shakeAmp = 0.12; if (AU.rumble) AU.rumble.gain.value = 0.85;
-  for (let i = 0; i < 7; i++) sfx.scream(1);
-  bolt(1); flickerLights(3); roll = 0.05;
-  await wait(2.4); bolt(1);
-  await say('Ibu di sebelah', 'Ya Allah! Lihat! Di luar jendela!', { voice: true, hold: 0.5 });
-  /* 5. melihat ke jendela */
+}
+async function standUp() {
+  hint(''); CAM.mode = 'walk'; WALK.x = SEAT.x; WALK.z = SEAT.z; WALK.yaw = SEAT.yaw; WALK.pitch = SEAT.pitch; WALK.eye = SEAT.eye; WALK.dist = 0; WALK.bob = 0; allowMove = false;
+  await tween(WALK, { x: 0.02, eye: 6.77 }, 1.0);
+  allowMove = true; el.sprint.style.display = 'block'; G.standing = true;
+}
+async function freeRoam() {
+  hint('Joystick kiri: berjalan \u00b7 Geser kanan: melihat \u00b7 Tombol lari: bergegas');
+  setObj('Jalan ke belakang kabin'); let t = 0;
+  while (t < 70 && WALK.z > -6.5) { await wait(0.25); t += 0.25; if (t > 8) hint(''); }
+  hint(''); setObj('Sekarang jalan ke depan, sampai dekat pintu kokpit'); t = 0;
+  while (t < 70 && WALK.z < 9) { await wait(0.25); t += 0.25; }
+  setObj(''); await wait(1.0);
+}
+async function turbulencePhase() {
+  await pa('Kencangkan sabuk pengaman. Kita memasuki cuaca buruk.');
+  if (AU.murmur) AU.murmur.gain.value = 0.1;
+  await wait(2.5);
+  G.turb = 0.5; G.brace = 0.3; sfx.rattle(); if (AU.rumble) AU.rumble.gain.value = 0.3; flickerLights(2);
+  await wait(2); bolt(0.6); sfx.scream(0.6);
+  setObj('Guncangan hebat! Duduk di kursi kosong bertanda hijau (sisi kiri)'); markG.visible = true; G.sitGoal = true;
+  let t = 0, sc = 0;
+  while (G.sitGoal && t < 45) {
+    await wait(0.25); t += 0.25; sc += 0.25; G.turb = Math.min(1, 0.5 + t * 0.03); G.brace = Math.min(0.6, 0.3 + t * 0.01); if (AU.rumble) AU.rumble.gain.value = 0.3 + G.turb * 0.3;
+    if (sc > 3) { sc = 0; sfx.scream(0.7); if (Math.random() < 0.5) bolt(0.7); }
+  }
+  if (G.sitGoal) await sitDown(true);
+}
+async function sitDown(auto) {
+  G.sitGoal = false; setAct(null); markG.visible = false; setObj(''); allowMove = false; el.sprint.style.display = 'none'; resetInput();
+  await tween(WALK, { x: SEATB.x, z: SEATB.z, eye: 6.32 }, auto ? 0.6 : 1.3);
+  SEAT.x = SEATB.x; SEAT.z = SEATB.z; SEAT.eye = 6.32; SEAT.yaw = clamp(WALK.yaw, -1.9, 1.9); SEAT.pitch = clamp(WALK.pitch, -0.7, 0.75); SEAT.guide = false; CAM.mode = 'seat';
+}
+async function revealPhase() {
+  G.turb = 1.0; G.brace = 0.4; await wait(1.4);
+  await say('Penumpang', 'Lihat! Di luar jendela!', { voice: true, hold: 0.4 });
   tween(G, { look: 1, brace: 0.15 }, 1.6); SEAT.guide = true; SEAT.yawT = 1.5; SEAT.pitT = -0.13;
-  tween(CAM, { leanX: 0.2, leanY: -0.13, leanZ: -0.14 }, 1.6); CAM.fov = 66;
-  await wait(1.2);
+  tween(CAM, { leanX: 0.2, leanY: -0.13, leanZ: 0.225 }, 1.6); CAM.fov = 66;
+  G.turb = 1.3; shakeAmp = 0.1; bolt(1); for (let i = 0; i < 5; i++) sfx.scream(1);
+  await wait(1.4);
   kr.g.visible = true; kr.tt = 0; sfx.growl(); tween(kr, { near: 1 }, 10); await tween(kr, { rise: 1 }, 5.0);
-  await say('', 'Di balik awan hitam itu... ada sesuatu.', { thought: true, hold: 0.8 });
-  bolt(1); await wait(0.4);
-  kr.flashT = 1; await wait(0.9);
-  await say('Ibu di sebelah', 'Itu... itu apa...?', { voice: true, hold: 0.7 });
-  bolt(1); for (let i = 0; i < 6; i++) sfx.scream(1.1);
-  G.panic = 1; await say('Penumpang di belakang', 'MONSTER! ITU MONSTER!', { voice: true, hold: 0.5 });
-  await think('Itu bukan awan. Itu... hidup.', { hold: 1.0 });
-  await pa('Semua kru... ke posisi... Ya Tuhan... jangan... jangan lihat...');
-  /* 6. hantaman */
+  bolt(1); kr.flashT = 1; await wait(0.8);
+  G.panic = 1; bolt(1); for (let i = 0; i < 6; i++) sfx.scream(1.1);
+  await say('Penumpang', 'MONSTER!', { voice: true, hold: 0.4 });
+  await wait(1.6);
+}
+async function finale() {
   G.turb = 2; shakeAmp = 0.4; kr.amp = 0.3; tween(G, { look: 0, brace: 1 }, 0.4); sfx.slam(); bolt(1); flickerLights(1.5);
   await wait(0.7); sfx.slam(); G.blackout = 3; shakeAmp = 0.7; sfx.scream(1.3);
   await wait(1.0); await fade(1, 0.35);
-  G.turb = 0; shakeAmp = 0; hint('');
-  await wait(1.6);
+  G.turb = 0; shakeAmp = 0; hint(''); await wait(1.6);
   await card('BAB 1 SELESAI', 'Bersambung ke Bab 2...', 4200);
   endStory();
+}
+async function story() {
+  G.started = true; G.turb = 0; G.cabin = 1; kr.g.visible = false; kr.rise = 0;
+  hint(''); el.sub.classList.remove('on'); el.pa.classList.remove('on');
+  await opening(); await cabinIntro(); await freeRoam(); await turbulencePhase(); await revealPhase(); await finale();
 }
 
 /* ---------- layar ---------- */
@@ -393,11 +486,15 @@ function showTitle() {
   G.state = 'title'; allowLook = false; hint(''); el.sub.classList.remove('on'); el.pa.classList.remove('on');
   showPanel('<div class="board"><h1>Penerbangan Pulang</h1><h2>Bab 1: Awan Mendung</h2><p>Kamu pulang dari Sumatra dengan pesawat siang. Semua tampak biasa... sampai awan di luar jendela berubah. Putar HP ke mendatar dan pakai earphone.</p><button class="cta" data-do="start">Mulai</button><button class="cta alt" data-do="bright">Kecerahan: ' + BRN[brI] + '</button></div>');
 }
-function endStory() { G.state = 'end'; showPanel('<div class="board"><h1>Bersambung</h1><h2>Bab 1 selesai</h2><p>Bab 2 akan dimulai dengan kamu terbangun di kabin yang gelap. Kabari aku bagian mana yang ingin diperbaiki dulu.</p><button class="cta" data-do="start">Ulangi Bab 1</button><button class="cta alt" data-do="menu">Ke menu</button></div>'); }
+function endStory() { G.state = 'end'; allowMove = false; setAct(null); setObj(''); el.sprint.style.display = 'none'; resetInput(); showPanel('<div class="board"><h1>Bersambung</h1><h2>Bab 1 selesai</h2><p>Bab 2 akan dimulai dengan kamu terbangun di kabin yang gelap. Kabari aku bagian mana yang ingin diperbaiki dulu.</p><button class="cta" data-do="start">Ulangi Bab 1</button><button class="cta alt" data-do="menu">Ke menu</button></div>'); }
 function resetStory() {
-  TW = []; TIM = []; G.turb = 0; G.flash = 0; G.blackout = 0; G.look = 0; G.brace = 0; G.panic = 0; G.ibuTalk = 0; kr.amp = 0.11; kr.near = 0; shakeAmp = 0; roll = 0; flickerT = 0; CAM.leanX = CAM.leanY = CAM.leanZ = 0; SEAT.guide = false; allowLook = false;
-  kr.g.visible = false; kr.rise = 0; el.blur.style.opacity = '0'; el.card.classList.remove('on'); hint(''); el.sub.classList.remove('on'); el.pa.classList.remove('on');
-  for (let i = npcs.length - 1; i >= 0; i--) if (npcs[i].tag === 'mc') { root.remove(npcs[i].o); npcs.splice(i, 1); }
+  TW = []; TIM = []; G.turb = 0; G.flash = 0; G.blackout = 0; G.look = 0; G.brace = 0; G.panic = 0; G.ibuTalk = 0; G.sitGoal = false; G.standing = false; kr.amp = 0.11; kr.near = 0;
+  shakeAmp = 0; roll = 0; flickerT = 0; CAM.leanX = CAM.leanY = CAM.leanZ = 0; CAM.track = false; SEAT.guide = false; allowLook = false; allowMove = false; resetInput();
+  WALK.x = 0; WALK.z = 0; WALK.yaw = 0; WALK.pitch = 0; WALK.eye = 6.77; WALK.dist = 0; WALK.speed = 0;
+  kr.g.visible = false; kr.rise = 0; el.blur.style.opacity = '0'; el.card.classList.remove('on'); hint(''); setObj(''); setAct(null); markG.visible = false; el.sprint.style.display = 'none';
+  el.sub.classList.remove('on'); el.pa.classList.remove('on');
+  for (let i = npcs.length - 1; i >= 0; i--) if (npcs[i].tag === 'mc') { inner.remove(npcs[i].o); npcs.splice(i, 1); }
+  scene.fog = null; if (M.bandara) M.bandara.visible = false; cloudsLow.visible = true; cloudsNear.visible = true; inner.visible = true; FL.z = 0; FL.y = 0; FL.pitch = 0; applyFlight(); AU.ev = 0.1;
   if (M.luar) M.luar.visible = false;
   if (AU.rumble) AU.rumble.gain.value = 0; if (AU.murmur) AU.murmur.gain.value = 0.05;
 }
@@ -405,7 +502,7 @@ function startStory() {
   if (!M.cabin) { showErr('Model kabin belum termuat.'); return; }
   hidePanel(); resetStory(); G.state = 'play'; fade(1, 0.01); story().catch(e => showErr('cerita: ' + (e && e.message || e)));
 }
-function pauseGame() { if (G.state !== 'play') return; G.state = 'pause'; showPanel('<div class="board"><h1>Dijeda</h1><button class="cta" data-do="resume">Lanjut</button><button class="cta alt" data-do="bright">Kecerahan: ' + BRN[brI] + '</button><button class="cta alt" data-do="menu">Ke menu</button></div>'); }
+function pauseGame() { if (G.state !== 'play') return; G.state = 'pause'; resetInput(); showPanel('<div class="board"><h1>Dijeda</h1><button class="cta" data-do="resume">Lanjut</button><button class="cta alt" data-do="bright">Kecerahan: ' + BRN[brI] + '</button><button class="cta alt" data-do="menu">Ke menu</button></div>'); }
 el.panel.addEventListener('click', e => {
   const b = e.target.closest && e.target.closest('[data-do]'); if (!b) return; auInit();
   const a = b.dataset.do;
@@ -436,10 +533,12 @@ function updateWorld(dt, t) {
   if (wispTex && wispTex.offset) { wispTex.offset.y += dt * 0.03; wispTex.offset.x += dt * 0.008; }
   root.rotation.z = Math.sin(t * 1.3) * 0.004 * (1 + G.turb * 6) + (G.turb > 1 ? Math.sin(t * 9) * 0.01 * G.turb : 0);
   root.position.y = Math.sin(t * 2.1) * 0.02 * G.turb;
-  animNpcs(t, dt);
+  animNpcs(t, dt); applyFlight(); roll = Math.sin(t * 7.3) * 0.03 * G.turb;
+  if (AU.hum) { AU.hum.f.frequency.value = 230 + 1200 * AU.ev; AU.hum.g.gain.value = 0.5 + 0.8 * AU.ev; }
+  if (markG.visible) { const p = 0.5 + 0.5 * Math.sin(t * 4); markG.children[0].material.opacity = 0.5 + 0.4 * p; markG.children[1].scale.setScalar(1 + 0.3 * p); }
   if (kr.rise > 0.005) {
     kr.g.visible = true; kr.tt = (kr.tt || 0) + dt;
-    const nr = ease(clamp(kr.near, 0, 1)), x = lerp(165, 122, nr) + Math.sin(t * 0.3) * 4, y = lerp(-150, -95, ease(clamp(kr.rise, 0, 1))), z = 42 + Math.sin(kr.tt * 0.14) * 24;
+    const nr = ease(clamp(kr.near, 0, 1)), x = lerp(165, 122, nr) + Math.sin(t * 0.3) * 4, y = lerp(-150, -95, ease(clamp(kr.rise, 0, 1))), z = 38 + Math.sin(kr.tt * 0.14) * 20;
     kr.g.position.set(x, y + Math.sin(t * 0.6) * 1.5, z); kr.g.rotation.y = -Math.PI / 2 + Math.sin(t * 0.25) * 0.14; kr.g.scale.setScalar(40 * (1 + Math.sin(t * 0.9) * 0.012));
     if ((kr.fc = (kr.fc + 1) % 2) === 0) animKraken(t);
   } else kr.g.visible = false;
@@ -447,10 +546,17 @@ function updateWorld(dt, t) {
   for (const ci in seatChunks) { const c = seatChunks[ci], near = Math.abs(c.zc - camera.position.z) < 3.6; c.H.forEach(o => { o.visible = near; }); c.L.forEach(o => { o.visible = !near; }); }
   el.redfx.style.opacity = String(clamp(G.turb * 0.1 + (G.blackout > 0 ? 0.2 : 0), 0, 0.6));
 }
+function updateActContext() {
+  if (G.sitGoal && CAM.mode === 'walk' && allowMove) {
+    const near = Math.abs(WALK.z - SEATB.z) < 1.3;
+    if (near && (!ACT || ACT.tag !== 'sit')) setAct('Duduk di dekat jendela', () => { sitDown(false); }, 'sit');
+    else if (!near && ACT && ACT.tag === 'sit') setAct(null);
+  }
+}
 function loop(now) {
   requestAnimationFrame(loop);
   const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now; const t = now / 1000;
-  if (G.state === 'play') stepTweens(dt);
+  if (G.state === 'play') { stepTweens(dt); updatePlayer(dt, t); updateActContext(); }
   if (G.state === 'play' || G.state === 'end' || G.state === 'title') updateWorld(dt, t);
   updateCamera(dt, t);
   renderer.render(scene, camera);
@@ -462,12 +568,13 @@ function loop(now) {
 setCine([0.4, 6.5, -6], [0.8, 6, 6]);
 (async () => {
   try {
-    const gc = await loadGLB('kabin2_garuda.glb', 0, 55); setupCabin(gc);
-    const go = await loadGLB('orang.glb', 55, 68); prepOrang(go); populate();
-    try { const gk = await loadGLB('kraken.glb', 68, 82); setupKraken(gk); } catch (e) { showErr(e.message); }
-    try { const gl = await loadGLB('pesawat_luar.glb', 82, 100); setupLuar(gl); } catch (e) { showErr(e.message); }
+    const gc = await loadGLB('kabin2_garuda.glb', 0, 45); setupCabin(gc);
+    const go = await loadGLB('orang.glb', 45, 62); prepOrang(go); populate();
+    try { const gk = await loadGLB('kraken.glb', 62, 72); setupKraken(gk); } catch (e) { showErr(e.message); }
+    try { const gl = await loadGLB('pesawat_luar.glb', 72, 84); setupLuar(gl); } catch (e) { showErr(e.message); }
+    try { const gb = await loadGLB('bandara.glb', 84, 100); setupBandara(gb); } catch (e) { showErr(e.message); }
     el.loading.style.display = 'none'; fade(0, 1.0); showTitle();
   } catch (e) { el.loading.style.display = 'none'; showErr(e.message); showTitle(); }
 })();
 requestAnimationFrame(loop);
-if (window.__DEBUG) window.__dbg = { G, CAM, SEAT, kr, npcs, seatChunks, M, story, startStory, get shake() { return shakeAmp; }, camera, scene, sfx, TIMn: () => TIM.length };
+if (window.__DEBUG) window.__dbg = { G, CAM, SEAT, WALK, FL, SEATB, mv, kr, npcs, seatChunks, M, story, startStory, get act() { return ACT; }, get allowMove() { return allowMove; }, scene, rig, get shake() { return shakeAmp; }, camera, scene, sfx, TIMn: () => TIM.length };
